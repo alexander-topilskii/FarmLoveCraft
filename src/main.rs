@@ -26,24 +26,23 @@ fn main() {
 struct Player {
     speed: f32,
     target_pos: Option<Vec3>,
+    walk_timer: f32,
 }
 
 #[derive(Component)]
 struct CameraController {
-    /// Угол поворота вокруг персонажа по горизонтали (yaw / азимут)
     yaw: f32,
-    /// Угол наклона по вертикали (pitch)
     pitch: f32,
-    /// Расстояние от цели до камеры (zoom)
     distance: f32,
 }
 
 fn setup(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Земля фермы с разметкой сетки/точек
+    // Земля фермы (мрачно-зеленая лавкрафтовская почва)
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
@@ -54,58 +53,202 @@ fn setup(
         Transform::from_xyz(0.0, 0.0, 0.0),
     ));
 
-    // Несколько декоративных ориентиров/камней на поле, чтобы чувствовалось вращение и перемещение
-    let pillar_mesh = meshes.add(Cuboid::new(0.6, 2.0, 0.6));
-    let pillar_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.25, 0.28, 0.3),
-        perceptual_roughness: 0.7,
-        ..default()
-    });
+    // Загрузка модульных PS1-объектов Лавкрафтовского Замка из Blender
+    let floor_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_floor.glb"));
+    let wall_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_wall.glb"));
+    let pillar_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_pillar.glb"));
+    let arch_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_arch.glb"));
+    let table_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_table.glb"));
+    let chair_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_chair.glb"));
+    let bookcase_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_bookcase.glb"));
+    let rug_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_rug.glb"));
+    let candelabra_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_candelabra.glb"));
+    let altar_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_altar.glb"));
 
-    for (x, z) in [(-6.0, -6.0), (8.0, -5.0), (-7.0, 9.0), (10.0, 8.0)] {
+    // 1. Каменный пол замкового зала (сетка 3x3 тайла по 4x4 метра -> зал 12x12м)
+    for gx in -1..=1 {
+        for gz in -1..=1 {
+            commands.spawn((
+                WorldAssetRoot(floor_scene.clone()),
+                Transform::from_xyz(gx as f32 * 4.0, 0.0, gz as f32 * 4.0),
+            ));
+        }
+    }
+
+    // 2. Северная и Боковые стены замка (оставляем юг открытым для изометрического обзора)
+    // Северная стена: две глухие стены по краям и готическая арка-портал по центру
+    for wx in [-4.0, 4.0] {
         commands.spawn((
-            Mesh3d(pillar_mesh.clone()),
-            MeshMaterial3d(pillar_mat.clone()),
-            Transform::from_xyz(x, 1.0, z),
+            WorldAssetRoot(wall_scene.clone()),
+            Transform::from_xyz(wx, 0.0, -6.0),
+        ));
+    }
+    commands.spawn((
+        WorldAssetRoot(arch_scene.clone()),
+        Transform::from_xyz(0.0, 0.0, -6.0),
+    ));
+
+    // Западная и Восточная боковые стены
+    let rot_90 = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2);
+    for wz in [-4.0, 0.0, 4.0] {
+        commands.spawn((
+            WorldAssetRoot(wall_scene.clone()),
+            Transform::from_xyz(-6.0, 0.0, wz).with_rotation(rot_90),
+        ));
+    }
+    for wz in [-4.0, 4.0] {
+        commands.spawn((
+            WorldAssetRoot(wall_scene.clone()),
+            Transform::from_xyz(6.0, 0.0, wz).with_rotation(rot_90),
+        ));
+    }
+    // Восточный портал-арка (выход к ферме/реке)
+    commands.spawn((
+        WorldAssetRoot(arch_scene.clone()),
+        Transform::from_xyz(6.0, 0.0, 0.0).with_rotation(rot_90),
+    ));
+
+    // Южный вход (две арки и колонны по углам)
+    commands.spawn((
+        WorldAssetRoot(arch_scene),
+        Transform::from_xyz(0.0, 0.0, 6.0),
+    ));
+
+    // 3. Рунические колонны по углам и вдоль проходов
+    for (px, pz) in [
+        (-6.0, -6.0), (-2.0, -6.0), (2.0, -6.0), (6.0, -6.0),
+        (-6.0,  6.0), (-2.0,  6.0), (2.0,  6.0), (6.0,  6.0),
+    ] {
+        commands.spawn((
+            WorldAssetRoot(pillar_scene.clone()),
+            Transform::from_xyz(px, 0.0, pz),
         ));
     }
 
-    // Игрок: овальная капсула
+    // 4. Внутреннее убранство: Ритуальный ковер в центре зала
     commands.spawn((
-        Player {
-            speed: 9.0,
-            target_pos: None,
-        },
-        Mesh3d(meshes.add(Capsule3d::new(0.45, 1.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.75, 0.22, 0.32),
-            metallic: 0.1,
-            perceptual_roughness: 0.4,
-            ..default()
-        })),
-        Transform::from_xyz(0.0, 0.95, 0.0),
+        WorldAssetRoot(rug_scene),
+        Transform::from_xyz(0.0, 0.08, -0.5),
     ));
 
-    // Направленный лунный свет
+    // 5. Массивный стол исследователя с фолиантом и свечой + готические кресла
+    commands.spawn((
+        WorldAssetRoot(table_scene),
+        Transform::from_xyz(-2.8, 0.08, -1.5),
+    ));
+    commands.spawn((
+        WorldAssetRoot(chair_scene.clone()),
+        Transform::from_xyz(-2.8, 0.08, -2.5)
+            .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+    ));
+    commands.spawn((
+        WorldAssetRoot(chair_scene),
+        Transform::from_xyz(-4.2, 0.08, -1.5)
+            .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
+    ));
+
+    // 6. Книжные шкафы с запретными томами вдоль северной и западной стен
+    for bx in [-4.0, 4.0] {
+        commands.spawn((
+            WorldAssetRoot(bookcase_scene.clone()),
+            Transform::from_xyz(bx, 0.08, -5.4)
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+        ));
+    }
+    commands.spawn((
+        WorldAssetRoot(bookcase_scene),
+        Transform::from_xyz(-5.4, 0.08, 2.5)
+            .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
+    ));
+
+    // 7. Оккультный алтарь Древних в восточном крыле зала + изумрудное свечение
+    commands.spawn((
+        WorldAssetRoot(altar_scene),
+        Transform::from_xyz(3.5, 0.08, -1.5)
+            .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
+    ));
+    commands.spawn((
+        PointLight {
+            color: Color::srgb(0.25, 0.95, 0.55),
+            intensity: 45_000.0,
+            range: 9.0,
+            shadow_maps_enabled: false,
+            ..default()
+        },
+        Transform::from_xyz(3.5, 1.8, -1.5),
+    ));
+
+    // 8. Напольные канделябры с теплым светом свечей
+    for (cx, cz) in [(-1.8, -4.8), (1.8, -4.8), (-4.8, 4.5), (4.8, 4.5)] {
+        commands.spawn((
+            WorldAssetRoot(candelabra_scene.clone()),
+            Transform::from_xyz(cx, 0.08, cz),
+        ));
+        commands.spawn((
+            PointLight {
+                color: Color::srgb(1.0, 0.72, 0.32),
+                intensity: 30_000.0,
+                range: 8.0,
+                shadow_maps_enabled: false,
+                ..default()
+            },
+            Transform::from_xyz(cx, 1.65, cz),
+        ));
+    }
+
+    // Игрок: Загружаем 3D-модель Сыщика из Blender (detective.glb)
+    let detective_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/detective.glb"));
+    
+    commands
+        .spawn((
+            Player {
+                speed: 8.5,
+                target_pos: None,
+                walk_timer: 0.0,
+            },
+            Transform::from_xyz(0.0, 0.08, 2.0),
+            Visibility::default(),
+        ))
+        .with_children(|parent| {
+            // Вложенная 3D-модель сыщика
+            parent.spawn((
+                WorldAssetRoot(detective_scene),
+                Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::PI)), // разворот лицом вперед
+            ));
+
+            // Источник теплого света от керосинового фонаря в руке сыщика
+            parent.spawn((
+                PointLight {
+                    color: Color::srgb(1.0, 0.85, 0.45),
+                    intensity: 80_000.0,
+                    range: 12.0,
+                    shadow_maps_enabled: true,
+                    ..default()
+                },
+                Transform::from_xyz(0.35, 1.0, -0.35),
+            ));
+        });
+
+    // Направленный холодный лунный свет
     commands.spawn((
         DirectionalLight {
-            illuminance: 3_500.0,
+            illuminance: 3_000.0,
             shadow_maps_enabled: true,
-            color: Color::srgb(0.85, 0.9, 1.0),
+            color: Color::srgb(0.82, 0.88, 1.0),
             ..default()
         },
         Transform::from_xyz(20.0, 30.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // Изометрическая камера (Lineage 2 style: yaw, pitch, zoom)
+    // Изометрическая камера (Lineage 2 style)
     commands.spawn((
         Camera3d::default(),
         CameraController {
             yaw: 0.0,
-            pitch: 42.0_f32.to_radians(), // удобный изометрический угол наклона
-            distance: 22.0,
+            pitch: 42.0_f32.to_radians(),
+            distance: 20.0,
         },
-        Transform::from_xyz(0.0, 15.0, 17.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(0.0, 15.0, 16.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 }
 
@@ -126,7 +269,7 @@ fn player_input_system(
         return;
     };
 
-    // 1. Управление клавиатурой (WASD / стрелки) с учетом поворота камеры
+    // 1. Управление клавиатурой (WASD / стрелки) относительно угла камеры
     let mut keyboard_dir = Vec3::ZERO;
     if keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp) {
         keyboard_dir.z -= 1.0;
@@ -142,26 +285,21 @@ fn player_input_system(
     }
 
     if keyboard_dir.length_squared() > 0.0 {
-        // Направление движения трансформируется относительно угла поворота камеры (yaw)
         let yaw_rot = Quat::from_rotation_y(cam_controller.yaw);
         let move_dir = yaw_rot * keyboard_dir.normalize();
-
-        // Клавиатура переопределяет цель мыши и сразу смещает цель вперед
         player.target_pos = Some(player_transform.translation + move_dir * 3.0);
         return;
     }
 
-    // 2. Клик левой кнопкой мыши (или зажатие) для перемещения к точке на земле (L2 style)
+    // 2. Клик мыши (LMB) для перемещения к точке на земле
     if mouse_button.pressed(MouseButton::Left) {
         if let Some(cursor_pos) = window.cursor_position() {
             if let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) {
-                // Пересечение луча с плоскостью земли (Y = 0)
-                // ray.origin + t * ray.direction = (x, 0, z) => t = -origin.y / direction.y
                 if ray.direction.y.abs() > f32::EPSILON {
-                    let t = (0.95 - ray.origin.y) / ray.direction.y;
+                    let t = -ray.origin.y / ray.direction.y;
                     if t > 0.0 {
                         let ground_hit = ray.origin + *ray.direction * t;
-                        player.target_pos = Some(Vec3::new(ground_hit.x, 0.95, ground_hit.z));
+                        player.target_pos = Some(Vec3::new(ground_hit.x, 0.0, ground_hit.z));
                     }
                 }
             }
@@ -187,11 +325,17 @@ fn player_movement_system(
 
                 transform.translation += direction * move_amount;
 
-                // Плавный поворот лицом к цели движения
+                // Плавное покачивание при ходьбе (шаги сыщика)
+                player.walk_timer += time.delta_secs() * 12.0;
+                transform.translation.y = (player.walk_timer.sin() * 0.06).abs();
+
+                // Поворот лицом к цели движения
                 let target_rotation = Quat::from_rotation_y(direction.x.atan2(direction.z));
                 transform.rotation = transform.rotation.slerp(target_rotation, 15.0 * time.delta_secs());
             } else {
                 player.target_pos = None;
+                player.walk_timer = 0.0;
+                transform.translation.y = 0.0;
             }
         }
     }
@@ -212,15 +356,12 @@ fn camera_controller_system(
         return;
     };
 
-    // 1. Вращение камеры перетаскиванием правой кнопкой мыши (RMB Drag в стиле Lineage 2)
+    // 1. Вращение камеры перетаскиванием правой кнопкой мыши (RMB Drag)
     if mouse_button.pressed(MouseButton::Right) {
         let delta = mouse_motion.delta;
         let sensitivity = 0.005;
 
-        // Поворот по горизонтали (yaw)
         controller.yaw -= delta.x * sensitivity;
-
-        // Наклон по вертикали (pitch) с ограничением угла
         controller.pitch += delta.y * sensitivity;
         controller.pitch = controller.pitch.clamp(20.0_f32.to_radians(), 75.0_f32.to_radians());
     }
@@ -231,7 +372,7 @@ fn camera_controller_system(
         controller.distance = controller.distance.clamp(8.0, 45.0);
     }
 
-    // 3. Вычисление сферических координат камеры относительно позиции игрока
+    // 3. Вычисление позиции камеры
     let target = player_transform.translation;
     let cos_pitch = controller.pitch.cos();
     let sin_pitch = controller.pitch.sin();
@@ -244,9 +385,8 @@ fn camera_controller_system(
 
     let desired_cam_pos = target + offset;
 
-    // Плавное следование камеры
     cam_transform.translation = cam_transform
         .translation
         .lerp(desired_cam_pos, 10.0 * time.delta_secs());
-    cam_transform.look_at(target + Vec3::new(0.0, 0.5, 0.0), Vec3::Y);
+    cam_transform.look_at(target + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
 }
