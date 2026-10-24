@@ -36,9 +36,16 @@ jobs:
       - name: Cache Cargo dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Install wasm-bindgen-cli
+      - name: Get wasm-bindgen version
+        id: wasm-bindgen-version
         run: |
-          cargo install wasm-bindgen-cli --version 0.2.100 || cargo install wasm-bindgen-cli
+          VERSION=$(awk -F '"' '/^name = "wasm-bindgen"$/ { getline; print $2; exit }' Cargo.lock)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install wasm-bindgen-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ steps.wasm-bindgen-version.outputs.version }}
 
       - name: Build WebAssembly (Release)
         run: |
