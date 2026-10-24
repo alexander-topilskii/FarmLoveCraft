@@ -416,14 +416,19 @@ pub fn update_wall_cutaway_system(
     state: Res<ActiveBuildingState>,
     player_query: Query<&Transform, With<Player>>,
     camera_query: Query<(&Transform, &CameraController), (With<Camera3d>, Without<Player>)>,
-    mut walls: Query<(&CutawayWall, &mut Transform), Without<Player>>,
+    mut walls: Query<(&CutawayWall, &mut Transform), (Without<Player>, Without<Camera3d>)>,
     mut pillars: Query<
         (&CutawayPillar, &mut Transform),
-        (Without<Player>, Without<CutawayWall>),
+        (Without<Player>, Without<Camera3d>, Without<CutawayWall>),
     >,
     mut attached_props: Query<
         (&CutawayAttachedProp, &mut Transform),
-        (Without<Player>, Without<CutawayWall>, Without<CutawayPillar>),
+        (
+            Without<Player>,
+            Without<Camera3d>,
+            Without<CutawayWall>,
+            Without<CutawayPillar>,
+        ),
     >,
 ) {
     let Ok(player_tf) = player_query.single() else {
