@@ -190,6 +190,7 @@
   },
   "active": "22a79fc4d6af517d",
   "lastOpenFiles": [
+    "target/debug/deps/game-3bb5b1eeee2ca0ce",
     "target/debug/deps/rustcnSZOfZ/symbols.o",
     "target/debug/deps/rustcnSZOfZ",
     "target/debug/incremental/game-3d4o9cqlfc91j/s-hnioas1cc6-1rxr9lm-9at4kke68qy2ci7hmeip6auqc/work-products.bin",
@@ -200,7 +201,6 @@
     "target/debug/incremental/game-3d4o9cqlfc91j/s-hnioas1cc6-1rxr9lm-9at4kke68qy2ci7hmeip6auqc/erbtnxme7yr5a40xzk3qv56mc.o",
     "target/debug/incremental/game-3d4o9cqlfc91j/s-hnioas1cc6-1rxr9lm-9at4kke68qy2ci7hmeip6auqc/eph43tujzi8race4w4d96la1z.o",
     "target/debug/incremental/game-3d4o9cqlfc91j/s-hnioas1cc6-1rxr9lm-9at4kke68qy2ci7hmeip6auqc/eud8847jcz4v2vffs2be7e8p7.o",
-    "target/debug/incremental/game-3d4o9cqlfc91j/s-hnioas1cc6-1rxr9lm-9at4kke68qy2ci7hmeip6auqc/eufpno9faboimu5c1es2f11l4.o",
     "2026-10-24.md",
     "humanFiles/GameDoc.md"
   ]
