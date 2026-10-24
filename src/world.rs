@@ -25,6 +25,8 @@ struct InteriorKitAssets {
     fireplace: Handle<WorldAsset>,
     alchemy: Handle<WorldAsset>,
     clock: Handle<WorldAsset>,
+    hand_axe: Handle<WorldAsset>,
+    occult_book: Handle<WorldAsset>,
 }
 
 pub fn setup_world(
@@ -78,6 +80,8 @@ pub fn setup_world(
         fireplace: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_fireplace.glb")),
         alchemy: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_alchemy.glb")),
         clock: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_clock.glb")),
+        hand_axe: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/prop_hand_axe.glb")),
+        occult_book: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/prop_occult_book.glb")),
     };
 
     // =========================================================================
@@ -121,6 +125,9 @@ pub fn setup_world(
     let carriage_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_carriage.glb"));
     let warehouse_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_warehouse.glb"));
     let phonebooth_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_phonebooth.glb"));
+    let trawler_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_trawler.glb"));
+    let dock_cargo_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_dock_cargo.glb"));
+    let cthulhu_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_cthulhu.glb"));
 
     // Брусчатые проспекты и площади (тайл 3.0 x 3.0м, проходимые)
     for pz in [12.5, 15.8, 19.0, 27.5, 30.8, 39.2, 42.5, 45.8, 49.0, 52.2, 58.0, 61.5] {
@@ -262,6 +269,59 @@ pub fn setup_world(
         Transform::from_xyz(-35.0, 0.0, 29.5).with_rotation(rot_90),
     ));
     nav_world.add_box(-35.0, 29.5, 3.70, 4.50);
+
+    // =========================================================================
+    // ПОРТ ИННСМУТА ИЗ РЕФЕРЕНСА: Рыбацкие траулеры, замшелые бочки/ящики,
+    // ручной топор, старая оккультная книга и колосс Ктулху над горизонтом!
+    // =========================================================================
+    // Два ржавых рыбацких траулера («Innsmouth Fishing Trawler»), пришвартованных в канале
+    for (bx, bz, byaw) in [
+        (-14.0_f32, 23.5_f32, std::f32::consts::FRAC_PI_2 - 0.12),
+        (14.0_f32, 23.5_f32, -std::f32::consts::FRAC_PI_2 + 0.10),
+    ] {
+        commands.spawn((
+            WorldAssetRoot(trawler_scene.clone()),
+            Transform::from_xyz(bx, -0.15, bz).with_rotation(Quat::from_rotation_y(byaw)),
+        ));
+    }
+
+    // Причальные грузы с морской тиной (бочки, ящики контрабандистов и кнехты)
+    let cargo_spots = [
+        (-4.8_f32, 20.2_f32, 0.25_f32),
+        (4.8_f32, 26.8_f32, -0.45_f32),
+        (29.5_f32, 28.0_f32, 1.10_f32),
+        (-29.5_f32, 28.0_f32, -0.85_f32),
+    ];
+    for (cx, cz, cyaw) in cargo_spots {
+        commands.spawn((
+            WorldAssetRoot(dock_cargo_scene.clone()),
+            Transform::from_xyz(cx, 0.0, cz).with_rotation(Quat::from_rotation_y(cyaw)),
+        ));
+        nav_world.add_box(cx, cz, 1.55, 1.15);
+    }
+
+    // Ручной топор («Prop_HandAxe») из референса, воткнутый в ящик на причале у моста
+    commands.spawn((
+        WorldAssetRoot(kit.hand_axe.clone()),
+        Transform::from_xyz(-3.8, 0.58, 20.1)
+            .with_rotation(Quat::from_Euler(EulerRot::XYZ, 0.15, 0.65, -0.35)),
+    ));
+
+    // Исполинский крылатый силуэт Ктулху («Outdoor_CthulhuHorizon») в тумане на дальнем горизонте
+    commands.spawn((
+        WorldAssetRoot(cthulhu_scene),
+        Transform::from_xyz(0.0, -0.5, -68.0),
+    ));
+    commands.spawn((
+        PointLight {
+            color: Color::srgb(0.22, 0.92, 0.58),
+            intensity: 180_000.0,
+            range: 38.0,
+            shadow_maps_enabled: false,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 18.0, -62.0),
+    ));
 
     // Большой Оккультный Фонтан на перекрестке (X = 0, Z = 35.0)
     commands.spawn((
@@ -809,6 +869,18 @@ fn spawn_investigator_castle(
                 Transform::from_xyz(-4.8, floor0_y, -1.5),
             ));
             nav_world.add_box_on_floor(-4.8, -1.5, 1.45, 0.80, 0);
+
+            // Старая оккультная книга и ручной топор из референсного листа Сыщика на столе исследователя
+            floor0.spawn((
+                WorldAssetRoot(kit.occult_book.clone()),
+                Transform::from_xyz(-4.3, floor0_y + 0.96, -1.35)
+                    .with_rotation(Quat::from_rotation_y(0.35)),
+            ));
+            floor0.spawn((
+                WorldAssetRoot(kit.hand_axe.clone()),
+                Transform::from_xyz(-5.4, floor0_y + 0.98, -1.25)
+                    .with_rotation(Quat::from_Euler(EulerRot::XYZ, std::f32::consts::FRAC_PI_2, 0.4, 0.0)),
+            ));
 
             floor0.spawn((
                 WorldAssetRoot(kit.chair.clone()),
