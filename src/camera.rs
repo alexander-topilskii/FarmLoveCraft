@@ -12,6 +12,7 @@ pub struct CameraController {
 
 pub fn camera_controller_system(
     mouse_button: Res<ButtonInput<MouseButton>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     mouse_scroll: Res<AccumulatedMouseScroll>,
     time: Res<Time>,
@@ -27,13 +28,23 @@ pub fn camera_controller_system(
         return;
     };
 
-    if mouse_button.pressed(MouseButton::Right) {
+    // Вращение камеры при зажатии СКМ, перетаскивании ПКМ или клавишами Q / E
+    if mouse_button.pressed(MouseButton::Middle)
+        || (mouse_button.pressed(MouseButton::Right) && mouse_motion.delta.length_squared() > 1.5)
+    {
         let delta = mouse_motion.delta;
         let sensitivity = 0.005;
 
         controller.yaw -= delta.x * sensitivity;
         controller.pitch += delta.y * sensitivity;
         controller.pitch = controller.pitch.clamp(20.0_f32.to_radians(), 75.0_f32.to_radians());
+    }
+
+    if keyboard_input.pressed(KeyCode::KeyQ) {
+        controller.yaw += 1.6 * time.delta_secs();
+    }
+    if keyboard_input.pressed(KeyCode::KeyE) {
+        controller.yaw -= 1.6 * time.delta_secs();
     }
 
     if mouse_scroll.delta.y.abs() > f32::EPSILON {

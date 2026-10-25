@@ -6,9 +6,14 @@ pub const PLAYER_RADIUS: f32 = 0.36;
 pub const NAV_CELL_SIZE: f32 = 0.30;
 pub const NAV_HALF_EXTENT: i32 = 260; // [-78m .. +78m]
 
+/// Уникальный идентификатор физического коллайдера для динамического удаления при разрушении объекта
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct ColliderId(pub u64);
+
 /// Физический 2D-коллайдер (AABB в плоскости XZ) с привязкой к конкретному этажу
 #[derive(Clone, Copy, Debug)]
 pub struct ColliderRect {
+    pub id: ColliderId,
     pub center: Vec2,
     pub half_extents: Vec2,
     /// Индекс этажа (`None` означает препятствие на всю высоту, например уличное дерево или колонна)
@@ -16,8 +21,16 @@ pub struct ColliderRect {
 }
 
 impl ColliderRect {
-    pub fn new_on_floor(x: f32, z: f32, half_x: f32, half_z: f32, floor: Option<i32>) -> Self {
+    pub fn new_on_floor(
+        id: ColliderId,
+        x: f32,
+        z: f32,
+        half_x: f32,
+        half_z: f32,
+        floor: Option<i32>,
+    ) -> Self {
         Self {
+            id,
             center: Vec2::new(x, z),
             half_extents: Vec2::new(half_x, half_z),
             floor,
@@ -171,33 +184,74 @@ pub struct NavWorld {
     pub colliders: Vec<ColliderRect>,
     pub stairs: Vec<StairLink>,
     pub floor_zones: Vec<FloorElevationZone>,
+    next_collider_id: u64,
+    /// Кэш высот терраформированного/процедурного рельефа по узлам сетки 2x2м
+    pub terrain_heights: HashMap<IVec2, f32>,
 }
 
 impl NavWorld {
-    /// Добавляет коллайдер на первый этаж / улицу (`floor = 0`)
-    pub fn add_box(&mut self, x: f32, z: f32, half_x: f32, half_z: f32) {
-        self.add_box_on_floor(x, z, half_x, half_z, 0);
+    fn alloc_collider_id(&mut self) -> ColliderId {
+        self.next_collider_id += 1;
+        ColliderId(self.next_collider_id)
     }
 
-    /// Добавляет коллайдер на конкретный этаж
-    pub fn add_box_on_floor(&mut self, x: f32, z: f32, half_x: f32, half_z: f32, floor: i32) {
-        self.colliders
-            .push(ColliderRect::new_on_floor(x, z, half_x, half_z, Some(floor)));
+    /// Добавляет коллайдер на первый этаж / улицу (`floor = 0`)
+    pub fn add_box(&mut self, x: f32, z: f32, half_x: f32, half_z: f32) -> ColliderId {
+        self.add_box_on_floor(x, z, half_x, half_z, 0)
+    }
+
+    /// Добавляет коллайдер на конкретный этаж и возвращает его `ColliderId`
+    pub fn add_box_on_floor(
+        &mut self,
+        x: f32,
+        z: f32,
+        half_x: f32,
+        half_z: f32,
+        floor: i32,
+    ) -> ColliderId {
+        let id = self.alloc_collider_id();
+        self.colliders.push(ColliderRect::new_on_floor(
+            id,
+            x,
+            z,
+            half_x,
+            half_z,
+            Some(floor),
+        ));
+        id
+    }
+
+    /// Удаляет физические коллайдеры разрушенного объекта по их идентификаторам
+    pub fn remove_colliders(&mut self, ids: &[ColliderId]) {
+        if ids.is_empty() {
+            return;
+        }
+        self.colliders.retain(|c| !ids.contains(&c.id));
     }
 
     /// Добавляет готическую арку как два боковых физических пилона (оставляя проход в центре открытым)
     #[allow(dead_code)]
-    pub fn add_arch(&mut self, x: f32, z: f32, rotated_90: bool) {
-        self.add_arch_on_floor(x, z, rotated_90, 0);
+    pub fn add_arch(&mut self, x: f32, z: f32, rotated_90: bool) -> Vec<ColliderId> {
+        self.add_arch_on_floor(x, z, rotated_90, 0)
     }
 
-    pub fn add_arch_on_floor(&mut self, x: f32, z: f32, rotated_90: bool, floor: i32) {
+    pub fn add_arch_on_floor(
+        &mut self,
+        x: f32,
+        z: f32,
+        rotated_90: bool,
+        floor: i32,
+    ) -> Vec<ColliderId> {
         if !rotated_90 {
-            self.add_box_on_floor(x - 1.45, z, 0.58, 0.42, floor);
-            self.add_box_on_floor(x + 1.45, z, 0.58, 0.42, floor);
+            vec![
+                self.add_box_on_floor(x - 1.45, z, 0.58, 0.42, floor),
+                self.add_box_on_floor(x + 1.45, z, 0.58, 0.42, floor),
+            ]
         } else {
-            self.add_box_on_floor(x, z - 1.45, 0.42, 0.58, floor);
-            self.add_box_on_floor(x, z + 1.45, 0.42, 0.58, floor);
+            vec![
+                self.add_box_on_floor(x, z - 1.45, 0.42, 0.58, floor),
+                self.add_box_on_floor(x, z + 1.45, 0.42, 0.58, floor),
+            ]
         }
     }
 
@@ -283,10 +337,10 @@ impl NavWorld {
                     return (zone.elevation, 0);
                 }
             }
-            return (Self::outdoor_ground_elevation(pos.x, pos.y), 0);
+            return (self.sample_outdoor_elevation(pos.x, pos.y), 0);
         }
 
-        (Self::outdoor_ground_elevation(pos.x, pos.y), 0)
+        (self.sample_outdoor_elevation(pos.x, pos.y), 0)
     }
 
     /// Высота рельефа для любой точки на заданном этаже (для отрисовки пути)
@@ -303,7 +357,49 @@ impl NavWorld {
                 return zone.elevation;
             }
         }
-        Self::outdoor_ground_elevation(pos.x, pos.y)
+        self.sample_outdoor_elevation(pos.x, pos.y)
+    }
+
+    /// Вычисляет высоту уличного рельефа с учетом процедурных чанков, терраформинга и мостов
+    pub fn sample_outdoor_elevation(&self, x: f32, z: f32) -> f32 {
+        // Горбатые мосты через канал
+        if (x.abs() <= 1.55 || (x - 28.0).abs() <= 1.55) && (z - 23.5).abs() <= 2.55 {
+            let t = 1.0 - ((z - 23.5).abs() / 2.55).clamp(0.0, 1.0);
+            return 0.08 + 0.38 * t;
+        }
+        if !self.terrain_heights.is_empty() {
+            let step = 2.0_f32;
+            let gx = (x / step).floor() as i32;
+            let gz = (z / step).floor() as i32;
+            let tx = (x / step) - gx as f32;
+            let tz = (z / step) - gz as f32;
+
+            let h00 = self
+                .terrain_heights
+                .get(&IVec2::new(gx, gz))
+                .copied()
+                .unwrap_or(0.0);
+            let h10 = self
+                .terrain_heights
+                .get(&IVec2::new(gx + 1, gz))
+                .copied()
+                .unwrap_or(h00);
+            let h01 = self
+                .terrain_heights
+                .get(&IVec2::new(gx, gz + 1))
+                .copied()
+                .unwrap_or(h00);
+            let h11 = self
+                .terrain_heights
+                .get(&IVec2::new(gx + 1, gz + 1))
+                .copied()
+                .unwrap_or(h00);
+
+            let hx0 = h00 + (h10 - h00) * tx;
+            let hx1 = h01 + (h11 - h01) * tx;
+            return hx0 + (hx1 - hx0) * tz;
+        }
+        Self::outdoor_ground_elevation(x, z)
     }
 
     pub fn outdoor_ground_elevation(x: f32, z: f32) -> f32 {

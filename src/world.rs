@@ -6,8 +6,13 @@ use crate::building::{
     FloorDefinition, FloorVisibilityRule,
 };
 use crate::camera::CameraController;
+use crate::destruction::{
+    Destructible, ResourceType, StructuralIntegrityDirty, StructuralKind, StructuralPiece,
+};
 use crate::navigation::{NavWorld, StairLink};
 use crate::player::{on_character_scene_ready, CharacterAnimations, Player};
+use crate::rts_command::{BuildableKitAssets, InventoryHudText};
+use crate::terrain::{ChunkCoord, ProceduralBiomeAssets, TerrainChunkEntity, WorldTerrain};
 
 /// Набор переиспользуемых ассетов для сборки многоэтажных интерьеров
 #[derive(Clone)]
@@ -37,6 +42,8 @@ pub fn setup_world(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut nav_world: ResMut<NavWorld>,
     mut building_registry: ResMut<BuildingRegistry>,
+    mut terrain: ResMut<WorldTerrain>,
+    mut integrity_dirty: ResMut<StructuralIntegrityDirty>,
 ) {
     // 1. Создаем граф анимаций со скелетными клипами Idle и Walk из нашего GLB
     let idle_clip: Handle<AnimationClip> =
@@ -55,16 +62,31 @@ pub fn setup_world(
         walk_node,
     });
 
-    // 2. Земля фермы и города Аркхэма (мрачно-зеленая лавкрафтовская почва 180x180м)
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(180.0, 180.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.12, 0.2, 0.14),
-            perceptual_roughness: 0.9,
-            ..default()
-        })),
-        Transform::from_xyz(0.0, 0.0, 0.0),
-    ));
+    // 2. Генерируемый чанковый рельеф мира (по принципу Valheim — с поддержкой копки и насыпи)
+    let terrain_mat = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        perceptual_roughness: 0.92,
+        metallic: 0.02,
+        ..default()
+    });
+    terrain.terrain_material = Some(terrain_mat.clone());
+
+    for cz in -3..=5 {
+        for cx in -4..=4 {
+            let coord = ChunkCoord::new(cx, cz);
+            terrain.sync_chunk_to_nav(coord, &mut nav_world);
+            let chunk_mesh = terrain.build_chunk_mesh(coord);
+            let chunk_entity = commands
+                .spawn((
+                    TerrainChunkEntity { coord },
+                    Mesh3d(meshes.add(chunk_mesh)),
+                    MeshMaterial3d(terrain_mat.clone()),
+                    Transform::default(),
+                ))
+                .id();
+            terrain.spawned_chunks.insert(coord, chunk_entity);
+        }
+    }
 
     let kit = InteriorKitAssets {
         floor: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/castle/castle_floor.glb")),
@@ -129,6 +151,24 @@ pub fn setup_world(
     let dock_cargo_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_dock_cargo.glb"));
     let cthulhu_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_cthulhu.glb"));
 
+    commands.insert_resource(ProceduralBiomeAssets {
+        tree: tree_scene.clone(),
+        bush: bush_scene.clone(),
+        gravestone: gravestone_scene.clone(),
+        gazebo: gazebo_scene.clone(),
+        well: well_scene.clone(),
+        crypt: crypt_scene.clone(),
+    });
+
+    commands.insert_resource(BuildableKitAssets {
+        wall: kit.wall.clone(),
+        arch: kit.arch.clone(),
+        pillar: kit.pillar.clone(),
+        floor: kit.floor.clone(),
+        candelabra: kit.candelabra.clone(),
+        bush_tentacle: bush_scene.clone(),
+    });
+
     // Брусчатые проспекты и площади (тайл 3.0 x 3.0м, проходимые)
     for pz in [12.5, 15.8, 19.0, 27.5, 30.8, 39.2, 42.5, 45.8, 49.0, 52.2, 58.0, 61.5] {
         commands.spawn((
@@ -163,34 +203,38 @@ pub fn setup_world(
 
     // Кованые ворота поместья и ограда кладбища (Z = 10.0)
     for gx in [-6.2, 6.2] {
+        let c1 = nav_world.add_box(gx - 1.85, 10.0, 0.55, 0.55);
+        let c2 = nav_world.add_box(gx + 1.85, 10.0, 0.55, 0.55);
         commands.spawn((
             WorldAssetRoot(gate_scene.clone()),
             Transform::from_xyz(gx, 0.0, 10.0),
+            Destructible::stone_monolith("Кованые ворота поместья", vec![c1, c2]),
         ));
-        nav_world.add_box(gx - 1.85, 10.0, 0.55, 0.55);
-        nav_world.add_box(gx + 1.85, 10.0, 0.55, 0.55);
     }
     for fx in [-19.0, -15.0, -11.0, 11.0, 15.0, 19.0] {
+        let col = nav_world.add_box(fx, 10.0, 2.05, 0.35);
         commands.spawn((
             WorldAssetRoot(fence_scene.clone()),
             Transform::from_xyz(fx, 0.0, 10.0),
+            Destructible::stone_monolith("Кованая ограда погоста", vec![col]),
         ));
-        nav_world.add_box(fx, 10.0, 2.05, 0.35);
     }
     for fz in [12.0, 16.0, 20.0] {
+        let col = nav_world.add_box(-21.0, fz, 0.35, 2.05);
         commands.spawn((
             WorldAssetRoot(fence_scene.clone()),
             Transform::from_xyz(-21.0, 0.0, fz).with_rotation(rot_90),
+            Destructible::stone_monolith("Кованая ограда погоста", vec![col]),
         ));
-        nav_world.add_box(-21.0, fz, 0.35, 2.05);
     }
 
     // Каменный готический склеп и надгробия на западном погосте
+    let crypt_col = nav_world.add_box(-16.5, 15.0, 2.65, 2.30);
     commands.spawn((
         WorldAssetRoot(crypt_scene),
         Transform::from_xyz(-16.5, 0.0, 15.0).with_rotation(rot_90),
+        Destructible::occult_shrine("Готический склеп предков", vec![crypt_col]),
     ));
-    nav_world.add_box(-16.5, 15.0, 2.65, 2.30);
 
     for (gx, gz, gyaw) in [
         (-11.5, 13.5, 0.15),
@@ -198,19 +242,21 @@ pub fn setup_world(
         (-15.5, 19.8, 0.05),
         (-11.5, 20.2, 0.25),
     ] {
+        let col = nav_world.add_box(gx, gz, 0.78, 0.55);
         commands.spawn((
             WorldAssetRoot(gravestone_scene.clone()),
             Transform::from_xyz(gx, 0.0, gz).with_rotation(Quat::from_rotation_y(gyaw)),
+            Destructible::stone_monolith("Кельтское надгробие", vec![col]),
         ));
-        nav_world.add_box(gx, gz, 0.78, 0.55);
     }
 
     // Проклятый колодец со щупальцами на восточном дворе
+    let well_col = nav_world.add_box(22.5, 0.0, 1.35, 1.35);
     commands.spawn((
         WorldAssetRoot(well_scene),
         Transform::from_xyz(22.5, 0.0, 0.0).with_rotation(Quat::from_rotation_y(0.4)),
+        Destructible::occult_shrine("Колодец со щупальцами", vec![well_col]),
     ));
-    nav_world.add_box(22.5, 0.0, 1.35, 1.35);
     commands.spawn((
         PointLight {
             color: Color::srgb(0.25, 0.95, 0.55),
@@ -223,11 +269,12 @@ pub fn setup_world(
     ));
 
     // Затопленная циклопическая ротонда Древних в восточном парке
+    let gazebo_col = nav_world.add_box(16.5, 16.0, 2.60, 2.60);
     commands.spawn((
         WorldAssetRoot(gazebo_scene),
         Transform::from_xyz(16.5, 0.0, 16.0).with_rotation(Quat::from_rotation_y(-0.35)),
+        Destructible::occult_shrine("Циклопическая ротонда Древних", vec![gazebo_col]),
     ));
-    nav_world.add_box(16.5, 16.0, 2.60, 2.60);
     commands.spawn((
         PointLight {
             color: Color::srgb(0.25, 0.95, 0.58),
@@ -241,34 +288,38 @@ pub fn setup_world(
 
     // Проточный каменный канал и два горбатых моста
     for bx in [0.0, 28.0] {
+        let c1 = nav_world.add_box(bx - 1.58, 23.5, 0.30, 2.45);
+        let c2 = nav_world.add_box(bx + 1.58, 23.5, 0.30, 2.45);
         commands.spawn((
             WorldAssetRoot(bridge_scene.clone()),
             Transform::from_xyz(bx, 0.0, 23.5),
+            Destructible::stone_monolith("Каменный горбатый мост", vec![c1, c2]),
         ));
-        nav_world.add_box(bx - 1.58, 23.5, 0.30, 2.45);
-        nav_world.add_box(bx + 1.58, 23.5, 0.30, 2.45);
     }
     for cx in [-26.5, -21.5, -16.5, -11.5, -6.5, 6.5, 11.5, 16.5, 21.5, 34.5] {
+        let col = nav_world.add_box(cx, 23.5, 2.45, 1.95);
         commands.spawn((
             WorldAssetRoot(canal_scene.clone()),
             Transform::from_xyz(cx, 0.0, 23.5),
+            Destructible::occult_shrine("Канал со всходами щупалец", vec![col]),
         ));
-        nav_world.add_box(cx, 23.5, 2.45, 1.95);
     }
 
     // Доковые склады «Рыбопромышленной компании Марша»
+    let wh_col1 = nav_world.add_box(35.0, 29.5, 3.70, 4.50);
     commands.spawn((
         WorldAssetRoot(warehouse_scene.clone()),
         Transform::from_xyz(35.0, 0.0, 29.5)
             .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
+        Destructible::building_structure("Портовый склад Марша (Восток)", vec![wh_col1]),
     ));
-    nav_world.add_box(35.0, 29.5, 3.70, 4.50);
 
+    let wh_col2 = nav_world.add_box(-35.0, 29.5, 3.70, 4.50);
     commands.spawn((
         WorldAssetRoot(warehouse_scene),
         Transform::from_xyz(-35.0, 0.0, 29.5).with_rotation(rot_90),
+        Destructible::building_structure("Портовый склад Марша (Запад)", vec![wh_col2]),
     ));
-    nav_world.add_box(-35.0, 29.5, 3.70, 4.50);
 
     // =========================================================================
     // ПОРТ ИННСМУТА ИЗ РЕФЕРЕНСА: Рыбацкие траулеры, замшелые бочки/ящики,
@@ -282,6 +333,7 @@ pub fn setup_world(
         commands.spawn((
             WorldAssetRoot(trawler_scene.clone()),
             Transform::from_xyz(bx, -0.15, bz).with_rotation(Quat::from_rotation_y(byaw)),
+            Destructible::street_prop("Рыбацкий траулер Иннсмута", Vec::new()),
         ));
     }
 
@@ -293,11 +345,16 @@ pub fn setup_world(
         (-29.5_f32, 28.0_f32, -0.85_f32),
     ];
     for (cx, cz, cyaw) in cargo_spots {
+        let col = nav_world.add_box(cx, cz, 1.55, 1.15);
         commands.spawn((
             WorldAssetRoot(dock_cargo_scene.clone()),
             Transform::from_xyz(cx, 0.0, cz).with_rotation(Quat::from_rotation_y(cyaw)),
+            Destructible::furniture(
+                "Ящики контрабандистов в тине",
+                vec![col],
+                vec![(ResourceType::Wood, 3), (ResourceType::Clues, 1)],
+            ),
         ));
-        nav_world.add_box(cx, cz, 1.55, 1.15);
     }
 
     // Ручной топор («Prop_HandAxe») из референса, воткнутый в ящик на причале у моста
@@ -324,11 +381,12 @@ pub fn setup_world(
     ));
 
     // Большой Оккультный Фонтан на перекрестке (X = 0, Z = 35.0)
+    let fount_col = nav_world.add_box(0.0, 35.0, 2.55, 2.55);
     commands.spawn((
         WorldAssetRoot(fountain_scene),
         Transform::from_xyz(0.0, 0.0, 35.0),
+        Destructible::occult_shrine("Оккультный Фонтан Гаргулий", vec![fount_col]),
     ));
-    nav_world.add_box(0.0, 35.0, 2.55, 2.55);
     commands.spawn((
         PointLight {
             color: Color::srgb(0.22, 0.95, 0.62),
@@ -373,12 +431,13 @@ pub fn setup_world(
 
     // Две лавки на северной стороне Первой улицы
     for sx in [-13.5, 13.5] {
+        let col = nav_world.add_box(sx, 28.5, 3.90, 3.80);
         commands.spawn((
             WorldAssetRoot(shop_scene.clone()),
             Transform::from_xyz(sx, 0.0, 28.5)
                 .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+            Destructible::building_structure("Лавка Ордена Дагона", vec![col]),
         ));
-        nav_world.add_box(sx, 28.5, 3.90, 3.80);
     }
 
     // Две двухэтажные гостиницы «Gilman House Inn» (южный ряд, Z = 44.5, вход с севера со стороны улицы Z = 35.0)
@@ -410,26 +469,29 @@ pub fn setup_world(
     );
 
     for sx in [-20.0, 20.0] {
+        let col = nav_world.add_box(sx, 44.5, 3.90, 3.80);
         commands.spawn((
             WorldAssetRoot(shop_scene.clone()),
             Transform::from_xyz(sx, 0.0, 44.5),
+            Destructible::building_structure("Портовая лавка Иннсмута", vec![col]),
         ));
-        nav_world.add_box(sx, 44.5, 3.90, 3.80);
     }
     for hx in [-30.0, 30.0] {
+        let col = nav_world.add_box(hx, 44.5, 4.25, 3.90);
         commands.spawn((
             WorldAssetRoot(townhouse_scene.clone()),
             Transform::from_xyz(hx, 0.0, 44.5),
+            Destructible::building_structure("Дом Иннсмута", vec![col]),
         ));
-        nav_world.add_box(hx, 44.5, 4.25, 3.90);
     }
 
     // Городская Часовая Башня Аркхэма
+    let tower_col = nav_world.add_box(0.0, 55.0, 2.38, 2.38);
     commands.spawn((
         WorldAssetRoot(clocktower_scene),
         Transform::from_xyz(0.0, 0.0, 55.0),
+        Destructible::building_structure("Часовая Башня Аркхэма", vec![tower_col]),
     ));
-    nav_world.add_box(0.0, 55.0, 2.38, 2.38);
     commands.spawn((
         PointLight {
             color: Color::srgb(0.95, 0.82, 0.42),
@@ -442,11 +504,12 @@ pub fn setup_world(
     ));
 
     // Готический Собор «Тайного Ордена Дагона»
+    let church_col = nav_world.add_box(0.0, 68.5, 5.10, 5.80);
     commands.spawn((
         WorldAssetRoot(church_scene),
         Transform::from_xyz(0.0, 0.0, 68.5),
+        Destructible::building_structure("Собор Тайного Ордена Дагона", vec![church_col]),
     ));
-    nav_world.add_box(0.0, 68.5, 5.10, 5.80);
     commands.spawn((
         PointLight {
             color: Color::srgb(0.65, 0.25, 0.85),
@@ -460,19 +523,21 @@ pub fn setup_world(
 
     // Корпуса Библиотеки и Обсерватории Мискатоникского Университета
     for ux in [-14.5, 14.5] {
+        let col = nav_world.add_box(ux, 66.5, 5.65, 4.40);
         commands.spawn((
             WorldAssetRoot(university_scene.clone()),
             Transform::from_xyz(ux, 0.0, 66.5),
+            Destructible::building_structure("Корпус Мискатоникского Университета", vec![col]),
         ));
-        nav_world.add_box(ux, 66.5, 5.65, 4.40);
     }
 
     for hx in [-26.5, 26.5] {
+        let col = nav_world.add_box(hx, 65.5, 4.25, 3.90);
         commands.spawn((
             WorldAssetRoot(townhouse_scene.clone()),
             Transform::from_xyz(hx, 0.0, 65.5),
+            Destructible::building_structure("Старый особняк Иннсмута", vec![col]),
         ));
-        nav_world.add_box(hx, 65.5, 4.25, 3.90);
     }
 
     // Винтажные автомобили-катафалки 1920-х годов
@@ -482,40 +547,57 @@ pub fn setup_world(
         (-3.8, 60.5, 0.15, 1.35, 2.55),
     ];
     for (cx, cz, cyaw, hx, hz) in carriage_positions {
+        let col = nav_world.add_box(cx, cz, hx, hz);
         commands.spawn((
             WorldAssetRoot(carriage_scene.clone()),
             Transform::from_xyz(cx, 0.0, cz).with_rotation(Quat::from_rotation_y(cyaw)),
+            Destructible::street_prop("Автомобиль-катафалк 1920-х", vec![col]),
         ));
-        nav_world.add_box(cx, cz, hx, hz);
     }
 
     // Фермерские телеги с урожаем
+    let cart_col1 = nav_world.add_box(14.5, -5.5, 1.25, 1.95);
     commands.spawn((
         WorldAssetRoot(cart_scene.clone()),
         Transform::from_xyz(14.5, 0.0, -5.5).with_rotation(Quat::from_rotation_y(0.55)),
+        Destructible::furniture(
+            "Телега с урожаем спор",
+            vec![cart_col1],
+            vec![(ResourceType::Wood, 3), (ResourceType::Fear, 2)],
+        ),
     ));
-    nav_world.add_box(14.5, -5.5, 1.25, 1.95);
 
+    let cart_col2 = nav_world.add_box(-24.5, 38.2, 1.95, 1.25);
     commands.spawn((
         WorldAssetRoot(cart_scene),
         Transform::from_xyz(-24.5, 0.0, 38.2).with_rotation(Quat::from_rotation_y(1.25)),
+        Destructible::furniture(
+            "Телега с урожаем спор",
+            vec![cart_col2],
+            vec![(ResourceType::Wood, 3), (ResourceType::Fear, 2)],
+        ),
     ));
-    nav_world.add_box(-24.5, 38.2, 1.95, 1.25);
 
     // Афишные тумбы и телефонные будки
     for (kx, kz) in [(-6.5, 31.2), (6.5, 38.8), (-6.2, 58.5)] {
+        let col = nav_world.add_box(kx, kz, 0.95, 0.95);
         commands.spawn((
             WorldAssetRoot(kiosk_scene.clone()),
             Transform::from_xyz(kx, 0.0, kz),
+            Destructible::furniture(
+                "Афишная тумба «Arkham Gazette»",
+                vec![col],
+                vec![(ResourceType::Wood, 2), (ResourceType::Clues, 2)],
+            ),
         ));
-        nav_world.add_box(kx, kz, 0.95, 0.95);
     }
     for (px, pz) in [(6.5, 31.2), (-6.2, 51.2), (6.2, 58.5)] {
+        let col = nav_world.add_box(px, pz, 0.78, 0.78);
         commands.spawn((
             WorldAssetRoot(phonebooth_scene.clone()),
             Transform::from_xyz(px, 0.0, pz),
+            Destructible::street_prop("Телефонная будка 1920-х", vec![col]),
         ));
-        nav_world.add_box(px, pz, 0.78, 0.78);
     }
 
     // Уличные газовые фонари
@@ -535,11 +617,12 @@ pub fn setup_world(
         (17.5, -3.5, -std::f32::consts::FRAC_PI_2),
     ];
     for (lx, lz, lyaw) in lamp_positions {
+        let col = nav_world.add_box(lx, lz, 0.36, 0.36);
         commands.spawn((
             WorldAssetRoot(lamppost_scene.clone()),
             Transform::from_xyz(lx, 0.0, lz).with_rotation(Quat::from_rotation_y(lyaw)),
+            Destructible::street_prop("Чугунный газовый фонарь", vec![col]),
         ));
-        nav_world.add_box(lx, lz, 0.36, 0.36);
         commands.spawn((
             PointLight {
                 color: Color::srgb(1.0, 0.80, 0.38),
@@ -563,11 +646,12 @@ pub fn setup_world(
         (22.5, -4.5, Quat::IDENTITY, 1.24, 0.48),
     ];
     for (bx, bz, brot, hx, hz) in bench_positions {
+        let col = nav_world.add_box(bx, bz, hx, hz);
         commands.spawn((
             WorldAssetRoot(bench_scene.clone()),
             Transform::from_xyz(bx, 0.0, bz).with_rotation(brot),
+            Destructible::street_prop("Викторианская скамейка", vec![col]),
         ));
-        nav_world.add_box(bx, bz, hx, hz);
     }
 
     // Болотные деревья
@@ -585,13 +669,14 @@ pub fn setup_world(
         (23.5, 55.0, 0.4, 1.05),
     ];
     for (tx, tz, tyaw, tscale) in tree_positions {
+        let col = nav_world.add_box(tx, tz, 0.75 * tscale, 0.75 * tscale);
         commands.spawn((
             WorldAssetRoot(tree_scene.clone()),
             Transform::from_xyz(tx, 0.0, tz)
                 .with_rotation(Quat::from_rotation_y(tyaw))
                 .with_scale(Vec3::splat(tscale)),
+            Destructible::tree(vec![col]),
         ));
-        nav_world.add_box(tx, tz, 0.75 * tscale, 0.75 * tscale);
     }
 
     // Болотные кусты
@@ -608,12 +693,15 @@ pub fn setup_world(
         (16.5, 39.5, 1.9),
     ];
     for (bx, bz, byaw) in bush_positions {
+        let col = nav_world.add_box(bx, bz, 0.82, 0.82);
         commands.spawn((
             WorldAssetRoot(bush_scene.clone()),
             Transform::from_xyz(bx, 0.0, bz).with_rotation(Quat::from_rotation_y(byaw)),
+            Destructible::bush(vec![col]),
         ));
-        nav_world.add_box(bx, bz, 0.82, 0.82);
     }
+
+    integrity_dirty.0 = true;
 
     // 3. Игрок: Загружаем 3D-модель Сыщика
     let detective_scene =
@@ -680,10 +768,12 @@ pub fn setup_world(
             position_type: PositionType::Absolute,
             top: Val::Px(14.0),
             left: Val::Px(16.0),
+            flex_direction: FlexDirection::Column,
+            row_gap: Val::Px(6.0),
             padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
             ..default()
         })
-        .insert(BackgroundColor(Color::srgba(0.06, 0.08, 0.10, 0.82)))
+        .insert(BackgroundColor(Color::srgba(0.06, 0.08, 0.10, 0.85)))
         .with_children(|parent| {
             parent.spawn((
                 BuildingHudText,
@@ -693,6 +783,17 @@ pub fn setup_world(
                     ..default()
                 },
                 TextColor(Color::srgb(0.86, 0.82, 0.68)),
+            ));
+            parent.spawn((
+                InventoryHudText,
+                Text::new(
+                    "ПКМ по объекту или земле — меню приказов (Разрушить / Копать / Строить)",
+                ),
+                TextFont {
+                    font_size: FontSize::Px(14.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.58, 0.90, 0.72)),
             ));
         });
 }
