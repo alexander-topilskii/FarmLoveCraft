@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use bevy::ui::UiGlobalTransform;
 use serde::{Deserialize, Serialize};
 
+use crate::atmosphere::WorldClock;
 use crate::camera::CameraController;
 use crate::defense::{DefenseWaveState, DetectiveEnergy};
 use crate::destruction::PlayerInventory;
@@ -40,6 +41,8 @@ pub struct SaveData {
     pub energy: SavedEnergy,
     pub defense_wave: SavedDefenseWave,
     pub camera: SavedCamera,
+    #[serde(default)]
+    pub time_of_day: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -116,6 +119,7 @@ pub enum MenuButtonAction {
     CameraDistanceSet(f32),
     CameraFovStep(f32),
     CameraFovSet(f32),
+    SetTimeOfDay(f32),
     CloseMenu,
 }
 
@@ -133,6 +137,10 @@ pub struct MenuDistanceLabel;
 /// Метка текущего значения FOV в меню
 #[derive(Component)]
 pub struct MenuFovLabel;
+
+/// Метка текущего времени суток в меню
+#[derive(Component)]
+pub struct MenuTimeLabel;
 
 /// Метка строки статуса сохранения/загрузки
 #[derive(Component)]
@@ -443,6 +451,71 @@ pub fn setup_game_menu_ui(mut commands: Commands) {
                             Color::srgba(0.14, 0.16, 0.20, 0.95),
                             Color::srgba(0.24, 0.28, 0.34, 1.0),
                             Val::Px(56.0),
+                        );
+                    });
+
+                    // Разделитель
+                    spawn_menu_divider(menu);
+
+                    // Секция 3: Время суток в игре
+                    menu.spawn((
+                        Text::new("3. Время суток в игре:"),
+                        TextFont {
+                            font_size: FontSize::Px(14.0),
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.88, 0.84, 0.72)),
+                    ));
+
+                    // Метка текущего времени
+                    menu.spawn((
+                        MenuTimeLabel,
+                        Text::new("Время суток: 17:30 (Кровавый Закат)"),
+                        TextFont {
+                            font_size: FontSize::Px(13.0),
+                            ..default()
+                        },
+                        TextColor(Color::srgb(0.96, 0.75, 0.40)),
+                    ));
+
+                    menu.spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        column_gap: Val::Px(8.0),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    })
+                    .with_children(|row| {
+                        spawn_action_button(
+                            row,
+                            "🌙 00:00 (12 ночи)",
+                            MenuButtonAction::SetTimeOfDay(0.0),
+                            Color::srgba(0.12, 0.14, 0.24, 0.95),
+                            Color::srgba(0.20, 0.26, 0.44, 1.0),
+                            Val::Px(118.0),
+                        );
+                        spawn_action_button(
+                            row,
+                            "🌅 06:00 (6 утра)",
+                            MenuButtonAction::SetTimeOfDay(6.0),
+                            Color::srgba(0.24, 0.20, 0.14, 0.95),
+                            Color::srgba(0.38, 0.30, 0.20, 1.0),
+                            Val::Px(118.0),
+                        );
+                        spawn_action_button(
+                            row,
+                            "☀️ 12:00 (12 дня)",
+                            MenuButtonAction::SetTimeOfDay(12.0),
+                            Color::srgba(0.14, 0.24, 0.28, 0.95),
+                            Color::srgba(0.22, 0.38, 0.44, 1.0),
+                            Val::Px(118.0),
+                        );
+                        spawn_action_button(
+                            row,
+                            "🌇 18:00 (6 вечера)",
+                            MenuButtonAction::SetTimeOfDay(18.0),
+                            Color::srgba(0.28, 0.16, 0.14, 0.95),
+                            Color::srgba(0.44, 0.24, 0.20, 1.0),
+                            Val::Px(118.0),
                         );
                     });
 
