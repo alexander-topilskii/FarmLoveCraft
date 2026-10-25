@@ -709,6 +709,7 @@ pub fn setup_world(
                 ..default()
             },
             Transform::from_xyz(lx, 3.8, lz),
+            crate::atmosphere::FlickeringLight::lantern(65_000.0),
         ));
     }
 
@@ -817,23 +818,54 @@ pub fn setup_world(
                 },
                 Transform::from_xyz(0.35, 1.0, 0.35),
                 PlayerLanternLight,
+                crate::atmosphere::FlickeringLight::lantern(80_000.0),
             ));
         });
 
-    // Направленный холодный лунный свет
+    // Направленное небесное светило (Солнце / Луна) с объемными лучами Valheim (God Rays) и 4 каскадами теней
     commands.spawn((
         DirectionalLight {
-            illuminance: 3_000.0,
+            illuminance: 6_500.0,
             shadow_maps_enabled: true,
-            color: Color::srgb(0.82, 0.88, 1.0),
+            color: Color::srgb(1.0, 0.55, 0.28),
             ..default()
         },
         Transform::from_xyz(25.0, 40.0, 25.0).looking_at(Vec3::ZERO, Vec3::Y),
+        bevy::light::VolumetricLight,
+        bevy::light::CascadeShadowConfigBuilder {
+            num_cascades: 4,
+            minimum_distance: 0.1,
+            maximum_distance: 85.0,
+            first_cascade_far_bound: 8.0,
+            overlap_proportion: 0.2,
+        }
+        .build(),
+        crate::atmosphere::CelestialSunLight,
     ));
 
-    // Изометрическая камера
+    // Локальный объем тумана для объемного рассеивания лучей (God Rays) вокруг фокуса камеры
     commands.spawn((
-        Camera3d::default(),
+        bevy::light::FogVolume {
+            fog_color: Color::srgb(0.20, 0.18, 0.24),
+            density_factor: 0.045,
+            scattering_asymmetry: 0.65,
+            absorption: 0.25,
+            scattering: 0.35,
+            ..default()
+        },
+        Transform::from_scale(Vec3::splat(70.0)),
+        crate::atmosphere::AtmosphericFogVolume,
+    ));
+
+    // Глобальный рассеянный свет окружения (динамически управляется суточным циклом)
+    commands.insert_resource(bevy::light::GlobalAmbientLight {
+        color: Color::srgb(0.40, 0.48, 0.60),
+        brightness: 75.0,
+        ..default()
+    });
+
+    // Изометрическая кинематографическая камера (HDR + Bloom + SSAO + Tonemapping + DoF + AtmosphericFog)
+    commands.spawn(crate::atmosphere::setup_cinematic_camera_bundle(
         CameraController {
             yaw: 0.0,
             pitch: 42.0_f32.to_radians(),
@@ -892,6 +924,15 @@ pub fn setup_world(
                     ..default()
                 },
                 TextColor(Color::srgb(0.95, 0.85, 0.45)),
+            ));
+            parent.spawn((
+                crate::atmosphere::AtmosphereHudText,
+                Text::new("Время: 17:30 (Кровавый Закат) | Биом: Поместье Аркхэма"),
+                TextFont {
+                    font_size: FontSize::Px(13.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.72, 0.85, 0.98)),
             ));
         });
 }

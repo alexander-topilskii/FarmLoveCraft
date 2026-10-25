@@ -130,6 +130,7 @@ pub fn populate_city_chunk(
                                 ..default()
                             },
                             Transform::from_xyz(0.0, 1.8, 0.0),
+                            crate::atmosphere::FlickeringLight::torch(85_000.0),
                         ));
                     });
 
@@ -157,6 +158,7 @@ pub fn populate_city_chunk(
                                     ..default()
                                 },
                                 Transform::from_xyz(0.0, 0.6, 0.0),
+                                crate::atmosphere::FlickeringLight::lantern(25_000.0),
                             ));
                         });
                 }
@@ -183,6 +185,7 @@ pub fn populate_city_chunk(
                                 ..default()
                             },
                             Transform::from_xyz(0.0, 1.8, 0.0),
+                            crate::atmosphere::FlickeringLight::torch(45_000.0),
                         ));
                     });
 
@@ -365,6 +368,7 @@ pub fn populate_city_chunk(
                                     ..default()
                                 },
                                 Transform::from_xyz(0.0, 2.2, 0.0),
+                                crate::atmosphere::FlickeringLight::lantern(65_000.0),
                             ));
                             // Дымоход на крыше хижины
                             parent.spawn((
@@ -395,6 +399,7 @@ pub fn populate_city_chunk(
                                     ..default()
                                 },
                                 Transform::from_xyz(0.0, 6.0, 0.0),
+                                crate::atmosphere::FlickeringLight::lantern(85_000.0),
                             ));
                         });
                 }
@@ -472,6 +477,7 @@ pub fn populate_city_chunk(
                                 ..default()
                             },
                             Transform::from_xyz(0.0, 2.5, 0.0),
+                            crate::atmosphere::FlickeringLight::lantern(55_000.0),
                         ));
                     });
 
@@ -571,6 +577,7 @@ fn spawn_streetlamp(
                     ..default()
                 },
                 Transform::from_xyz(0.0, 3.2, 0.0),
+                crate::atmosphere::FlickeringLight::lantern(intensity),
             ));
         });
 }

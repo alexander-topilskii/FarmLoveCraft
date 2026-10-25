@@ -1,3 +1,4 @@
+mod atmosphere;
 mod building;
 mod camera;
 mod city_generator;
@@ -41,8 +42,8 @@ use rts_command::{
 };
 use terrain::{rebuild_dirty_chunks_system, stream_terrain_chunks_system, WorldTerrain};
 use water_cellular::{
-    sync_water_mesh_system, water_flow_physics_system, water_simulation_system,
-    WaterSimulationTimer, WaterWorld,
+    animate_water_waves_system, sync_water_mesh_system, water_flow_physics_system,
+    water_simulation_system, WaterSimulationTimer, WaterWorld,
 };
 use world::setup_world;
 
@@ -63,7 +64,9 @@ fn main() {
                 ..default()
             }),
             ..default()
-        }));
+        }))
+        .add_plugins(atmosphere::AtmospherePlugin);
+
 
     // Заменяем встроенный в Bevy дефолтный шрифт (FiraMono-subset только с ASCII символами)
     // на полный шрифт FiraMono-Medium с поддержкой кириллицы (русских букв).
@@ -152,6 +155,7 @@ fn main() {
                 cull_distant_lights_system,
                 update_support_skillbar_hud_system,
                 update_game_menu_labels_system,
+                animate_water_waves_system,
             )
                 .in_set(GameSystemSet::Presentation),
         )
@@ -221,6 +225,7 @@ mod tests {
                 cull_distant_lights_system,
                 update_support_skillbar_hud_system,
                 update_game_menu_labels_system,
+                animate_water_waves_system,
             )
                 .in_set(GameSystemSet::Presentation),
         );

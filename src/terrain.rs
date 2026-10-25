@@ -400,18 +400,30 @@ impl WorldTerrain {
             .copied()
             .unwrap_or(SurfaceMod::Natural);
 
-        // На крутых склонах (раскопки, обрывы, скалы) проступает серо-сланцевая каменная порода
-        let slope = 1.0 - normal.y.clamp(0.0, 1.0);
-        if slope > 0.34 {
-            return [0.22, 0.23, 0.25, 1.0];
-        }
+        // Микро-вариации рельефа через шум
+        let micro_jitter = Self::hash2d(gx, gz, self.seed ^ 0x99) * 0.05 - 0.025;
 
-        match surface_mod {
-            SurfaceMod::Excavated => [0.24, 0.18, 0.13, 1.0],
-            SurfaceMod::Cultivated => [0.16, 0.28, 0.20, 1.0],
-            SurfaceMod::Paved => [0.27, 0.28, 0.30, 1.0],
+        // Базовый цвет по типу поверхности и биому
+        let base_col = match surface_mod {
+            SurfaceMod::Excavated => [
+                (0.24 + micro_jitter).clamp(0.05, 1.0),
+                (0.18 + micro_jitter).clamp(0.05, 1.0),
+                (0.13 + micro_jitter).clamp(0.05, 1.0),
+                1.0,
+            ],
+            SurfaceMod::Cultivated => [
+                (0.15 + micro_jitter * 0.5).clamp(0.05, 1.0),
+                (0.26 + micro_jitter).clamp(0.05, 1.0),
+                (0.18 + micro_jitter * 0.5).clamp(0.05, 1.0),
+                1.0,
+            ],
+            SurfaceMod::Paved => [
+                (0.28 + micro_jitter * 0.8).clamp(0.05, 1.0),
+                (0.29 + micro_jitter * 0.8).clamp(0.05, 1.0),
+                (0.31 + micro_jitter * 0.8).clamp(0.05, 1.0),
+                1.0,
+            ],
             SurfaceMod::Natural => {
-                let jitter = Self::hash2d(gx, gz, self.seed ^ 0x99) * 0.04 - 0.02;
                 let biome = self.sample_biome(wx, wz);
                 let base_rgb = match biome {
                     Biome::ArkhamCitadel => [0.12, 0.19, 0.14],
@@ -429,12 +441,32 @@ impl WorldTerrain {
                     Biome::EldritchRuins => [0.19, 0.21, 0.23],
                 };
                 [
-                    (base_rgb[0] + jitter).clamp(0.02, 1.0),
-                    (base_rgb[1] + jitter).clamp(0.02, 1.0),
-                    (base_rgb[2] + jitter).clamp(0.02, 1.0),
+                    (base_rgb[0] + micro_jitter).clamp(0.02, 1.0),
+                    (base_rgb[1] + micro_jitter).clamp(0.02, 1.0),
+                    (base_rgb[2] + micro_jitter).clamp(0.02, 1.0),
                     1.0,
                 ]
             }
+        };
+
+        // На крутых склонах (раскопки, обрывы, скалы, берега каналов) плавно проступает серо-сланцевая порода
+        let slope = 1.0 - normal.y.clamp(0.0, 1.0);
+        if slope > 0.22 {
+            let rock_blend = ((slope - 0.22) / 0.20).clamp(0.0, 1.0);
+            let rock_noise = Self::hash2d(gx, gz, self.seed ^ 0xAA) * 0.05 - 0.025;
+            let rock_rgb = [
+                (0.22 + rock_noise).clamp(0.05, 0.8),
+                (0.23 + rock_noise).clamp(0.05, 0.8),
+                (0.25 + rock_noise).clamp(0.05, 0.8),
+            ];
+            [
+                base_col[0] * (1.0 - rock_blend) + rock_rgb[0] * rock_blend,
+                base_col[1] * (1.0 - rock_blend) + rock_rgb[1] * rock_blend,
+                base_col[2] * (1.0 - rock_blend) + rock_rgb[2] * rock_blend,
+                1.0,
+            ]
+        } else {
+            base_col
         }
     }
 
@@ -695,6 +727,12 @@ fn populate_wild_chunk(
                             .with_scale(Vec3::splat(scale)),
                         crate::destruction::Destructible::tree(is_infected, vec![col_id]),
                         crate::destruction::InfectedFlora(is_infected),
+                        crate::atmosphere::FoliageWindSway {
+                            base_rotation: Quat::from_rotation_y(yaw),
+                            phase: r1 * 10.0,
+                            sway_speed: 1.0 + r2 * 0.6,
+                            sway_amount: 0.038,
+                        },
                         ChunkMember(coord),
                     ));
                 } else if r3 < 0.68 {
@@ -706,6 +744,12 @@ fn populate_wild_chunk(
                             .with_rotation(Quat::from_rotation_y(yaw)),
                         crate::destruction::Destructible::bush(is_infected, vec![col_id]),
                         crate::destruction::InfectedFlora(is_infected),
+                        crate::atmosphere::FoliageWindSway {
+                            base_rotation: Quat::from_rotation_y(yaw),
+                            phase: r2 * 10.0,
+                            sway_speed: 1.4 + r1 * 0.5,
+                            sway_amount: 0.028,
+                        },
                         ChunkMember(coord),
                     ));
                 } else if slot == 0 && r1 > 0.88 {
