@@ -1,5 +1,6 @@
 mod building;
 mod camera;
+mod city_generator;
 mod defense;
 mod destruction;
 mod navigation;

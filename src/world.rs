@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use bevy::prelude::*;
 use crate::building::{BuildingHudText, BuildingId, BuildingRegistry};
 use crate::camera::CameraController;
+use crate::city_generator::ProceduralCityAssets;
 use crate::destruction::{
     Destructible, InfectedFlora, ResourceModelAssets, ResourceType, SharedVfxAssets,
     StructuralIntegrityDirty,
@@ -203,6 +204,33 @@ pub fn setup_world(
         gazebo: gazebo_scene.clone(),
         well: well_scene.clone(),
         crypt: crypt_scene.clone(),
+    });
+
+    commands.insert_resource(ProceduralCityAssets {
+        townhouse: townhouse_scene.clone(),
+        shop: shop_scene.clone(),
+        path: path_scene.clone(),
+        fence: fence_scene.clone(),
+        gate: gate_scene.clone(),
+        lamppost: lamppost_scene.clone(),
+        bench: bench_scene.clone(),
+        kiosk: kiosk_scene.clone(),
+        phonebooth: phonebooth_scene.clone(),
+        cart: cart_scene.clone(),
+        well: well_scene.clone(),
+
+        witch_cottage: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_witchcottage.glb")),
+        witch_tower: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_witchtower.glb")),
+        canopy_shelter: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_canopyshelter.glb")),
+        doghouse: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_doghouse.glb")),
+        chimney: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_chimney.glb")),
+        cauldron_large: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_cauldron_large.glb")),
+        cauldron_small: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_cauldron_small.glb")),
+        firewood_large: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_firewood_large.glb")),
+        firewood_small: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_firewood_small.glb")),
+        pumpkin_jack: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_pumpkin_jack.glb")),
+        pumpkin_plain: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_pumpkin_plain.glb")),
+        lantern_green: asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/haunted/haunted_lantern_green.glb")),
     });
 
     commands.insert_resource(BuildableKitAssets {

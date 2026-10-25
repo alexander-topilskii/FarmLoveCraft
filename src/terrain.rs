@@ -64,6 +64,10 @@ pub enum SurfaceMod {
 pub enum Biome {
     /// Плато Замка Исследователя и кварталов Аркхэма/Иннсмута
     ArkhamCitadel,
+    /// Процедурные заброшенные городские кварталы Иннсмута (улицы, таунхаусы, фонари, магазины)
+    InnsmouthCity,
+    /// Процедурная Оккультная Деревня / Поселение Ведьм (хижины, башни, частоколы, котлы, дрова)
+    WitchVillage,
     /// Топи и биолюминесцентные болота Иннсмута
     InnsmouthSwamp,
     /// Холмистый Проклятый Лес Аркхэма
@@ -76,6 +80,8 @@ impl Biome {
     pub fn display_name(self) -> &'static str {
         match self {
             Biome::ArkhamCitadel => "Поместье Аркхэма",
+            Biome::InnsmouthCity => "Кварталы Иннсмута",
+            Biome::WitchVillage => "Оккультная Деревня",
             Biome::InnsmouthSwamp => "Болота Иннсмута",
             Biome::Darkwoods => "Чащоба Черного Леса",
             Biome::EldritchRuins => "Пустоши Древних",
@@ -192,10 +198,17 @@ impl WorldTerrain {
         if self.city_flatten_factor(wx, wz) > 0.65 {
             return Biome::ArkhamCitadel;
         }
+        let settlement_noise = Self::fbm(wx * 0.007, wz * 0.007, self.seed ^ 0xC171, 3);
         let moisture = Self::fbm(wx * 0.012, wz * 0.012, self.seed ^ 0xA5A5, 3);
         let elevation_bias = Self::fbm(wx * 0.010, wz * 0.010, self.seed ^ 0x5A5A, 3);
 
-        if elevation_bias > 0.25 {
+        if settlement_noise > 0.18 {
+            if moisture > 0.02 || elevation_bias < 0.0 {
+                Biome::InnsmouthCity
+            } else {
+                Biome::WitchVillage
+            }
+        } else if elevation_bias > 0.25 {
             Biome::EldritchRuins
         } else if moisture > 0.10 {
             Biome::InnsmouthSwamp
@@ -234,6 +247,8 @@ impl WorldTerrain {
 
         let raw_h = match biome {
             Biome::ArkhamCitadel => 0.0,
+            Biome::InnsmouthCity => (macro_hills * 0.20).round() * 1.5,
+            Biome::WitchVillage => (macro_hills * 0.28).round() * 1.5 + detail * 0.20,
             Biome::InnsmouthSwamp => (macro_hills * 0.45 + detail * 0.4 - 0.35).max(-0.8),
             Biome::Darkwoods => macro_hills * 0.85 + detail + 0.4,
             Biome::EldritchRuins => (macro_hills * 1.35 + detail.abs() * 1.4 + 1.1).max(0.2),
@@ -400,6 +415,8 @@ impl WorldTerrain {
                 let biome = self.sample_biome(wx, wz);
                 let base_rgb = match biome {
                     Biome::ArkhamCitadel => [0.12, 0.19, 0.14],
+                    Biome::InnsmouthCity => [0.18, 0.20, 0.22],
+                    Biome::WitchVillage => [0.16, 0.15, 0.12],
                     Biome::InnsmouthSwamp => {
                         if h < -0.15 {
                             // Биолюминесцентная болотная тина в низинах
@@ -516,6 +533,8 @@ pub fn stream_terrain_chunks_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     biome_assets: Option<Res<ProceduralBiomeAssets>>,
+    city_assets: Option<Res<crate::city_generator::ProceduralCityAssets>>,
+    mut water_world: Option<ResMut<crate::water_cellular::WaterWorld>>,
     player_query: Query<&Transform, With<Player>>,
     mut wild_objects: Query<(Entity, &ChunkMember, Option<&Destructible>)>,
 ) {
@@ -597,10 +616,22 @@ pub fn stream_terrain_chunks_system(
 
             terrain.spawned_chunks.insert(coord, entity);
 
-            // Заселяем дикие чанки за пределами стартового города процедурными разрушаемыми объектами
+            // Заселяем дикие чанки и процедурные города за пределами стартового поместья
             if !terrain.populated_chunks.contains(&coord) {
                 terrain.populated_chunks.insert(coord);
-                if let Some(ref assets) = biome_assets {
+                let center_xz = coord.min_world_xz() + Vec2::splat(CHUNK_SIZE * 0.5);
+                let biome = terrain.sample_biome(center_xz.x, center_xz.y);
+                if (biome == Biome::InnsmouthCity || biome == Biome::WitchVillage) && city_assets.is_some() {
+                    crate::city_generator::populate_city_chunk(
+                        &mut commands,
+                        &terrain,
+                        &mut nav_world,
+                        &mut water_world,
+                        city_assets.as_ref().unwrap(),
+                        coord,
+                        biome,
+                    );
+                } else if let Some(ref assets) = biome_assets {
                     populate_wild_chunk(
                         &mut commands,
                         &terrain,
@@ -718,7 +749,7 @@ fn populate_wild_chunk(
                     ));
                 }
             }
-            Biome::ArkhamCitadel => {}
+            Biome::ArkhamCitadel | Biome::InnsmouthCity | Biome::WitchVillage => {}
         }
     }
 }
