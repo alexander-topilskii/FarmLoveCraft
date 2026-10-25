@@ -1,13 +1,13 @@
 use bevy::asset::RenderAssetUsages;
 use bevy::core_pipeline::tonemapping::Tonemapping;
-use bevy::light::{FogVolume, GlobalAmbientLight, VolumetricFog};
-use bevy::mesh::{Indices, PrimitiveTopology};
-use bevy::pbr::{DistanceFog, FogFalloff, Material, MaterialPlugin, ScreenSpaceAmbientOcclusion};
+use bevy::light::{GlobalAmbientLight, NotShadowCaster, NotShadowReceiver};
+use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
+use bevy::pbr::{DistanceFog, FogFalloff, Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin, ScreenSpaceAmbientOcclusion};
 use bevy::post_process::bloom::{Bloom, BloomCompositeMode};
 use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
-use bevy::render::render_resource::{AsBindGroup, ShaderType};
+use bevy::render::render_resource::{AsBindGroup, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError};
 use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection, Msaa};
 use bevy::shader::ShaderRef;
 
@@ -74,15 +74,15 @@ pub struct SkyUniforms {
 impl Default for SkyUniforms {
     fn default() -> Self {
         Self {
-            zenith_color: LinearRgba::new(0.04, 0.08, 0.16, 1.0),
-            horizon_color: LinearRgba::new(0.24, 0.18, 0.15, 1.0),
-            nadir_color: LinearRgba::new(0.02, 0.03, 0.04, 1.0),
-            sun_dir_and_intensity: Vec4::new(0.65, 0.25, 0.50, 1.0),
-            sun_color: LinearRgba::new(1.0, 0.55, 0.28, 1.0),
-            moon_dir_and_phase: Vec4::new(-0.65, 0.40, -0.50, 1.0),
+            zenith_color: LinearRgba::new(0.12, 0.28, 0.55, 1.0),
+            horizon_color: LinearRgba::new(0.65, 0.50, 0.40, 1.0),
+            nadir_color: LinearRgba::new(0.08, 0.10, 0.12, 1.0),
+            sun_dir_and_intensity: Vec4::new(0.65, 0.35, 0.40, 1.4),
+            sun_color: LinearRgba::new(1.0, 0.58, 0.28, 1.0),
+            moon_dir_and_phase: Vec4::new(-0.65, 0.40, -0.40, 1.0),
             moon_color: LinearRgba::new(0.35, 0.85, 0.95, 1.0),
-            cloud_color: LinearRgba::new(0.22, 0.16, 0.18, 0.75),
-            params: Vec4::new(0.0, 0.4, 0.45, 0.0),
+            cloud_color: LinearRgba::new(0.45, 0.38, 0.42, 0.75),
+            params: Vec4::new(0.0, 0.2, 0.45, 0.0),
         }
     }
 }
@@ -97,6 +97,26 @@ impl Material for SkyMaterial {
     fn fragment_shader() -> ShaderRef {
         "shaders/skybox_lovecraft.wgsl".into()
     }
+
+    #[inline]
+    fn enable_shadows() -> bool {
+        false
+    }
+
+    #[inline]
+    fn enable_prepass() -> bool {
+        false
+    }
+
+    fn specialize(
+        _pipeline: &MaterialPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialPipelineKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        descriptor.primitive.cull_mode = None;
+        Ok(())
+    }
 }
 
 /// Маркер небесного купола
@@ -106,10 +126,6 @@ pub struct SkyDome;
 /// Маркер главного направленного светила (Солнце / Луна)
 #[derive(Component)]
 pub struct CelestialSunLight;
-
-/// Маркер объемного локального тумана вокруг фокуса камеры
-#[derive(Component)]
-pub struct AtmosphericFogVolume;
 
 /// Компонент живого мерцания пламени и газовых фонарей
 #[derive(Component, Clone, Copy, Debug)]
@@ -226,30 +242,30 @@ pub struct AtmosphereState {
 impl Default for AtmosphereState {
     fn default() -> Self {
         Self {
-            sun_color: Color::srgb(1.0, 0.55, 0.28),
-            sun_illuminance: 6_500.0,
-            sun_direction: Vec3::new(0.65, 0.25, 0.50).normalize(),
+            sun_color: Color::srgb(1.0, 0.58, 0.28),
+            sun_illuminance: 14_000.0,
+            sun_direction: Vec3::new(0.65, 0.35, 0.40).normalize(),
 
             moon_color: Color::srgb(0.35, 0.85, 0.95),
-            moon_direction: Vec3::new(-0.65, 0.40, -0.50).normalize(),
+            moon_direction: Vec3::new(-0.65, 0.40, -0.40).normalize(),
 
-            ambient_color: Color::srgb(0.40, 0.48, 0.60),
-            ambient_brightness: 75.0,
+            ambient_color: Color::srgb(0.52, 0.58, 0.70),
+            ambient_brightness: 160.0,
 
-            fog_color: Color::srgb(0.18, 0.16, 0.22),
-            fog_directional_color: Color::srgba(1.0, 0.62, 0.35, 0.75),
-            fog_directional_exponent: 18.0,
-            fog_extinction: Vec3::splat(0.013),
-            fog_inscattering: Vec3::splat(0.009),
+            fog_color: Color::srgb(0.42, 0.48, 0.58),
+            fog_directional_color: Color::srgba(1.0, 0.75, 0.45, 0.65),
+            fog_directional_exponent: 14.0,
+            fog_extinction: Vec3::splat(0.005),
+            fog_inscattering: Vec3::splat(0.003),
 
-            fog_volume_density: 0.045,
-            fog_volume_color: Color::srgb(0.20, 0.18, 0.24),
+            fog_volume_density: 0.0,
+            fog_volume_color: Color::srgb(0.42, 0.48, 0.58),
 
-            sky_zenith: Color::srgb(0.04, 0.08, 0.16),
-            sky_horizon: Color::srgb(0.24, 0.18, 0.15),
-            sky_nadir: Color::srgb(0.02, 0.03, 0.04),
+            sky_zenith: Color::srgb(0.12, 0.28, 0.55),
+            sky_horizon: Color::srgb(0.65, 0.50, 0.40),
+            sky_nadir: Color::srgb(0.08, 0.10, 0.12),
 
-            stars_intensity: 0.35,
+            stars_intensity: 0.2,
             cloud_coverage: 0.45,
             storm_intensity: 0.0,
 
@@ -299,7 +315,7 @@ impl Plugin for AtmospherePlugin {
                     update_world_clock_system,
                     update_atmosphere_interpolation_system,
                     update_celestial_lights_system,
-                    update_distance_and_volumetric_fog_system,
+                    update_distance_fog_system,
                     update_sky_dome_system,
                     update_lantern_and_fire_flicker_system,
                     update_foliage_wind_system,
@@ -329,6 +345,8 @@ fn setup_atmosphere_system(
         SkyDome,
         Mesh3d(meshes.add(sky_mesh)),
         MeshMaterial3d(sky_mat),
+        NotShadowCaster,
+        NotShadowReceiver,
         Transform::from_translation(Vec3::ZERO),
     ));
 
@@ -468,15 +486,20 @@ fn update_atmosphere_interpolation_system(
     let sample_biome = terrain.sample_biome(player_pos.x, player_pos.z);
     state.active_biome = sample_biome;
 
-    // Вектор Солнца: описывает суточную дугу по небосводу
+    // Суточная дуга Солнца и Луны с оптимальным углом подъёма над горизонтом
     let tod_rad = (clock.time_of_day - 6.0) / 24.0 * std::f32::consts::TAU;
-    let sun_y = tod_rad.sin();
-    let sun_x = tod_rad.cos() * 0.85;
-    let sun_z = 0.45;
+    let raw_sin = tod_rad.sin();
+    let raw_cos = tod_rad.cos();
+
+    let sun_y = (raw_sin * 0.75 + 0.35).clamp(0.22, 0.95);
+    let sun_x = raw_cos * 0.85;
+    let sun_z = 0.40;
     let sun_dir = Vec3::new(sun_x, sun_y, sun_z).normalize();
 
-    // Вектор Луны: противоположная сторона неба с легким смещением
-    let moon_dir = Vec3::new(-sun_x, -sun_y, -sun_z * 0.8 + 0.3).normalize();
+    let moon_y = (-raw_sin * 0.70 + 0.35).clamp(0.25, 0.90);
+    let moon_x = -raw_cos * 0.85;
+    let moon_z = -0.40;
+    let moon_dir = Vec3::new(moon_x, moon_y, moon_z).normalize();
 
     state.sun_direction = sun_dir;
     state.moon_direction = moon_dir;
@@ -486,49 +509,49 @@ fn update_atmosphere_interpolation_system(
     let tod = clock.time_of_day;
     let (target_sun_col, target_sun_illum, target_ambient_col, target_ambient_bright, target_sky_zenith, target_sky_horiz, target_stars) =
         if tod >= 5.0 && tod < 8.0 {
-            // Рассвет: розово-золотой горизонт, длинные тени
+            // Рассвет: розово-золотой горизонт, длинные теплые тени
             let t = (tod - 5.0) / 3.0;
             (
                 Color::srgb(1.0, 0.72, 0.52),
-                5_500.0 * t + 2_000.0 * (1.0 - t),
-                Color::srgb(0.42, 0.45, 0.55),
-                70.0,
-                Color::srgb(0.08, 0.14, 0.28),
-                Color::srgb(0.48, 0.32, 0.30),
+                12_000.0 * t + 4_000.0 * (1.0 - t),
+                Color::srgb(0.50, 0.52, 0.65),
+                140.0,
+                Color::srgb(0.14, 0.22, 0.45),
+                Color::srgb(0.75, 0.48, 0.38),
                 (1.0 - t) * 0.4,
             )
         } else if tod >= 8.0 && tod < 17.0 {
-            // День: прохладное серебристое солнце Новой Англии
+            // День: яркое живописное освещение Valheim
             (
-                Color::srgb(0.96, 0.98, 1.0),
-                13_500.0,
-                Color::srgb(0.55, 0.62, 0.72),
-                95.0,
-                Color::srgb(0.12, 0.28, 0.52),
-                Color::srgb(0.45, 0.52, 0.62),
+                Color::srgb(0.98, 0.96, 0.92),
+                18_000.0,
+                Color::srgb(0.55, 0.65, 0.78),
+                180.0,
+                Color::srgb(0.18, 0.38, 0.68),
+                Color::srgb(0.62, 0.72, 0.85),
                 0.0,
             )
         } else if tod >= 17.0 && tod < 20.5 {
-            // Закат: багрово-янтарное светило, максимальные лучи Valheim
+            // Закат: багрово-янтарное светило, золотой час
             let t = (tod - 17.0) / 3.5;
             (
-                Color::srgb(1.0, 0.48, 0.20),
-                7_000.0 * (1.0 - t) + 1_800.0 * t,
-                Color::srgb(0.42, 0.38, 0.48),
-                65.0,
-                Color::srgb(0.05, 0.10, 0.22),
-                Color::srgb(0.52, 0.22, 0.15),
+                Color::srgb(1.0, 0.58, 0.25),
+                14_000.0 * (1.0 - t) + 5_000.0 * t,
+                Color::srgb(0.55, 0.46, 0.62),
+                150.0 * (1.0 - t) + 100.0 * t,
+                Color::srgb(0.10, 0.18, 0.38),
+                Color::srgb(0.88, 0.45, 0.25),
                 t * 0.45,
             )
         } else {
-            // Ночь: бледно-лазурная Луна Бездны
+            // Ночь: бледно-лазурная Луна Бездны и читаемое окружение
             (
                 Color::srgb(0.35, 0.85, 0.95),
-                2_200.0,
-                Color::srgb(0.12, 0.18, 0.26),
-                32.0,
-                Color::srgb(0.015, 0.03, 0.06),
-                Color::srgb(0.04, 0.09, 0.12),
+                4_200.0,
+                Color::srgb(0.22, 0.30, 0.45),
+                85.0,
+                Color::srgb(0.02, 0.05, 0.10),
+                Color::srgb(0.08, 0.16, 0.24),
                 0.85,
             )
         };
@@ -536,49 +559,49 @@ fn update_atmosphere_interpolation_system(
     // Модификаторы по Биому
     let (biome_fog_col, biome_fog_dir_col, biome_fog_ext, biome_rain, biome_spores, biome_wind) = match sample_biome {
         Biome::ArkhamCitadel => (
-            Color::srgb(0.18, 0.20, 0.25),
+            Color::srgb(0.45, 0.50, 0.60),
             Color::srgba(1.0, 0.75, 0.45, 0.65),
-            Vec3::splat(0.012),
+            Vec3::splat(0.005),
             0.15,
             0.10,
             0.6,
         ),
         Biome::InnsmouthCity => (
-            Color::srgb(0.12, 0.24, 0.26), // морской бирюзовый туман
+            Color::srgb(0.35, 0.52, 0.58), // морской бирюзовый туман
             Color::srgba(0.5, 0.9, 0.85, 0.70),
-            Vec3::splat(0.016),
+            Vec3::splat(0.007),
             0.45,
             0.15,
             1.1,
         ),
         Biome::InnsmouthSwamp => (
-            Color::srgb(0.10, 0.26, 0.18), // плотный болотный изумрудный туман
+            Color::srgb(0.30, 0.50, 0.40), // изумрудный болотный туман
             Color::srgba(0.35, 0.95, 0.65, 0.85),
-            Vec3::splat(0.022),
+            Vec3::splat(0.008),
             0.65,
             0.90,
             0.7,
         ),
         Biome::WitchVillage => (
-            Color::srgb(0.24, 0.16, 0.26), // фиолетово-дымный оккультный вечер
+            Color::srgb(0.48, 0.38, 0.52), // фиолетово-дымный вечер
             Color::srgba(0.9, 0.55, 0.8, 0.75),
-            Vec3::splat(0.015),
+            Vec3::splat(0.006),
             0.20,
             0.40,
             0.8,
         ),
         Biome::Darkwoods => (
-            Color::srgb(0.08, 0.14, 0.12), // густой сумрак под соснами
+            Color::srgb(0.35, 0.45, 0.40), // хвойный сумрак
             Color::srgba(1.0, 0.80, 0.40, 0.90),
-            Vec3::splat(0.018),
+            Vec3::splat(0.007),
             0.10,
             0.75,
             0.5,
         ),
         Biome::EldritchRuins => (
-            Color::srgb(0.22, 0.12, 0.25), // циклопические пустоши Древних
+            Color::srgb(0.46, 0.36, 0.52), // пустоши Древних
             Color::srgba(0.85, 0.35, 0.95, 0.80),
-            Vec3::splat(0.020),
+            Vec3::splat(0.008),
             0.05,
             0.85,
             1.4,
@@ -628,9 +651,12 @@ fn lerp_color(a: Color, b: Color, t: f32) -> Color {
 /// Синхронизация направления, цвета и яркости главного DirectionalLight и GlobalAmbientLight
 fn update_celestial_lights_system(
     state: Res<AtmosphereState>,
+    player_query: Query<&Transform, (With<Player>, Without<CelestialSunLight>)>,
     mut sun_query: Query<(&mut Transform, &mut DirectionalLight), With<CelestialSunLight>>,
     ambient: Option<ResMut<GlobalAmbientLight>>,
 ) {
+    let focus = player_query.single().map(|t| t.translation).unwrap_or(Vec3::ZERO);
+
     for (mut tf, mut light) in &mut sun_query {
         let light_dir = if state.sun_direction.y >= -0.08 {
             state.sun_direction
@@ -638,8 +664,8 @@ fn update_celestial_lights_system(
             state.moon_direction
         };
 
-        tf.translation = light_dir * 45.0;
-        tf.look_at(Vec3::ZERO, Vec3::Y);
+        tf.translation = focus + light_dir * 50.0;
+        tf.look_at(focus, Vec3::Y);
 
         light.color = state.sun_color;
         light.illuminance = state.sun_illuminance;
@@ -651,29 +677,19 @@ fn update_celestial_lights_system(
     }
 }
 
-/// Синхронизация DistanceFog на камере и FogVolume вокруг фокуса
-fn update_distance_and_volumetric_fog_system(
+/// Синхронизация DistanceFog на камере
+fn update_distance_fog_system(
     state: Res<AtmosphereState>,
-    player_query: Query<&Transform, (With<Player>, Without<AtmosphericFogVolume>)>,
     mut cam_query: Query<&mut DistanceFog, With<Camera3d>>,
-    mut fog_volume_query: Query<(&mut Transform, &mut FogVolume), (With<AtmosphericFogVolume>, Without<Player>)>,
 ) {
     for mut dist_fog in &mut cam_query {
         dist_fog.color = state.fog_color;
         dist_fog.directional_light_color = state.fog_directional_color;
         dist_fog.directional_light_exponent = state.fog_directional_exponent;
-        dist_fog.falloff = FogFalloff::Atmospheric {
-            extinction: state.fog_extinction,
-            inscattering: state.fog_inscattering,
+        dist_fog.falloff = FogFalloff::Linear {
+            start: 45.0,
+            end: 130.0,
         };
-    }
-
-    let focus = player_query.single().map(|t| t.translation).unwrap_or(Vec3::ZERO);
-
-    for (mut tf, mut volume) in &mut fog_volume_query {
-        tf.translation = focus + Vec3::new(0.0, 6.0, 0.0);
-        volume.fog_color = state.fog_color;
-        volume.density_factor = state.fog_volume_density * (1.0 + state.storm_intensity * 0.8);
     }
 }
 
@@ -859,12 +875,12 @@ pub fn setup_cinematic_camera_bundle(
     (
         Camera3d::default(),
         Camera {
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.03, 0.04, 0.06)),
+            clear_color: ClearColorConfig::Custom(Color::srgb(0.08, 0.12, 0.18)),
             ..default()
         },
         Tonemapping::TonyMcMapface,
         Bloom {
-            intensity: 0.22,
+            intensity: 0.18,
             low_frequency_boost: 0.65,
             high_pass_frequency: 0.85,
             composite_mode: BloomCompositeMode::EnergyConserving,
@@ -872,24 +888,24 @@ pub fn setup_cinematic_camera_bundle(
         },
         ColorGrading {
             global: ColorGradingGlobal {
-                exposure: 0.04,
-                temperature: -0.04,
-                tint: -0.02,
+                exposure: 0.08,
+                temperature: -0.02,
+                tint: -0.01,
                 ..default()
             },
             shadows: ColorGradingSection {
-                saturation: 0.88,
-                contrast: 1.12,
+                saturation: 0.95,
+                contrast: 1.05,
                 ..default()
             },
             midtones: ColorGradingSection {
                 saturation: 1.05,
-                contrast: 1.08,
+                contrast: 1.05,
                 ..default()
             },
             highlights: ColorGradingSection {
-                saturation: 0.95,
-                contrast: 1.05,
+                saturation: 0.98,
+                contrast: 1.02,
                 ..default()
             },
         },
@@ -897,26 +913,20 @@ pub fn setup_cinematic_camera_bundle(
         ScreenSpaceAmbientOcclusion::default(),
         bevy::anti_alias::fxaa::Fxaa::default(),
         DistanceFog {
-            color: Color::srgb(0.18, 0.16, 0.22),
-            directional_light_color: Color::srgba(1.0, 0.62, 0.35, 0.75),
-            directional_light_exponent: 18.0,
-            falloff: FogFalloff::Atmospheric {
-                extinction: Vec3::splat(0.013),
-                inscattering: Vec3::splat(0.009),
+            color: Color::srgb(0.45, 0.50, 0.60),
+            directional_light_color: Color::srgba(1.0, 0.75, 0.45, 0.65),
+            directional_light_exponent: 14.0,
+            falloff: FogFalloff::Linear {
+                start: 45.0,
+                end: 130.0,
             },
-        },
-        VolumetricFog {
-            ambient_intensity: 0.0,
-            step_count: 40,
-            jitter: 0.8,
-            ..default()
         },
         DepthOfField {
             mode: DepthOfFieldMode::Gaussian,
             focal_distance: 24.0,
             sensor_height: 0.01866,
-            aperture_f_stops: 18.0,
-            max_circle_of_confusion_diameter: 16.0,
+            aperture_f_stops: 32.0,
+            max_circle_of_confusion_diameter: 8.0,
             ..default()
         },
         cam_controller,

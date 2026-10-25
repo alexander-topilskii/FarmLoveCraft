@@ -59,7 +59,7 @@ fn fbm(p: vec2<f32>) -> f32 {
 
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
-    let dir = normalize(mesh.world_position.xyz);
+    let dir = -normalize(mesh.world_normal);
     let time = sky.params.x;
     let stars_intensity = sky.params.y;
     let cloud_coverage = sky.params.z;

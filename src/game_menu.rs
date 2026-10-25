@@ -744,6 +744,7 @@ pub fn game_menu_interaction_system(
     mut inventory: ResMut<PlayerInventory>,
     mut energy: ResMut<DetectiveEnergy>,
     mut wave_state: ResMut<DefenseWaveState>,
+    mut clock: Option<ResMut<WorldClock>>,
 ) {
     if !menu_state.is_open {
         return;
@@ -851,6 +852,7 @@ pub fn game_menu_interaction_system(
                     pitch: cam_pitch,
                     fov_degrees: fov_deg,
                 },
+                time_of_day: clock.as_ref().map(|c| c.time_of_day),
             };
 
             match save_game_to_file(SAVE_FILE_NAME, &save_data) {
@@ -904,6 +906,12 @@ pub fn game_menu_interaction_system(
                         }
                     }
 
+                    if let Some(saved_tod) = data.time_of_day {
+                        if let Some(ref mut c) = clock {
+                            c.time_of_day = saved_tod;
+                        }
+                    }
+
                     menu_state.status_message = format!(
                         "✓ Прогресс загружен из {}! (Волна: {}, Ресурсы восстановлены)",
                         SAVE_FILE_NAME, wave_state.wave_number
@@ -941,6 +949,15 @@ pub fn game_menu_interaction_system(
                 }
             }
         }
+        MenuButtonAction::SetTimeOfDay(hour) => {
+            if let Some(ref mut c) = clock {
+                c.time_of_day = hour.clamp(0.0, 24.0) % 24.0;
+                let phase = c.phase_name();
+                let hour_int = c.time_of_day.floor() as u32;
+                menu_state.status_message = format!("✓ Установлено время: {:02}:00 ({})", hour_int, phase);
+                menu_state.status_timer = 4.0;
+            }
+        }
         MenuButtonAction::CloseMenu => {
             menu_state.is_open = false;
             for mut vis in &mut menu_root_query {
@@ -950,13 +967,15 @@ pub fn game_menu_interaction_system(
     }
 }
 
-/// Динамическое обновление меток дистанции, FOV и статуса в открытом меню
+/// Динамическое обновление меток дистанции, FOV, времени и статуса в открытом меню
 pub fn update_game_menu_labels_system(
     menu_state: Res<GameMenuState>,
     camera_query: Query<(&CameraController, &Projection), With<Camera3d>>,
-    mut dist_labels: Query<&mut Text, (With<MenuDistanceLabel>, Without<MenuFovLabel>, Without<MenuStatusLabel>)>,
-    mut fov_labels: Query<&mut Text, (With<MenuFovLabel>, Without<MenuDistanceLabel>, Without<MenuStatusLabel>)>,
-    mut status_labels: Query<&mut Text, (With<MenuStatusLabel>, Without<MenuDistanceLabel>, Without<MenuFovLabel>)>,
+    clock: Option<Res<WorldClock>>,
+    mut dist_labels: Query<&mut Text, (With<MenuDistanceLabel>, Without<MenuFovLabel>, Without<MenuStatusLabel>, Without<MenuTimeLabel>)>,
+    mut fov_labels: Query<&mut Text, (With<MenuFovLabel>, Without<MenuDistanceLabel>, Without<MenuStatusLabel>, Without<MenuTimeLabel>)>,
+    mut time_labels: Query<&mut Text, (With<MenuTimeLabel>, Without<MenuDistanceLabel>, Without<MenuFovLabel>, Without<MenuStatusLabel>)>,
+    mut status_labels: Query<&mut Text, (With<MenuStatusLabel>, Without<MenuDistanceLabel>, Without<MenuFovLabel>, Without<MenuTimeLabel>)>,
 ) {
     if !menu_state.is_open {
         return;
@@ -974,6 +993,15 @@ pub fn update_game_menu_labels_system(
 
         for mut text in &mut fov_labels {
             **text = format!("Поле зрения (FOV): {:.0}°", fov_deg);
+        }
+    }
+
+    if let Some(ref c) = clock {
+        let hours = c.time_of_day.floor() as u32;
+        let mins = ((c.time_of_day.fract()) * 60.0).floor() as u32;
+        let phase = c.phase_name();
+        for mut text in &mut time_labels {
+            **text = format!("Время суток: {:02}:{:02} ({})", hours, mins, phase);
         }
     }
 
@@ -1020,6 +1048,7 @@ mod tests {
                 pitch: 0.75,
                 fov_degrees: 60.0,
             },
+            time_of_day: Some(17.5),
         };
 
         save_game_to_file(path_str, &original).expect("Сохранение должно успешно записаться");
@@ -1469,6 +1498,151 @@ mod tests {
         assert_eq!(
             *app.world().get::<Visibility>(menu_root_entity).unwrap(),
             Visibility::Hidden
+        );
+    }
+
+    #[test]
+    fn test_game_menu_time_of_day_actions_and_labels() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.init_resource::<ButtonInput<MouseButton>>();
+        app.init_resource::<GameMenuState>();
+        app.init_resource::<PlayerInventory>();
+        app.init_resource::<DetectiveEnergy>();
+        app.init_resource::<DefenseWaveState>();
+        app.init_resource::<Time>();
+        app.insert_resource(WorldClock {
+            time_of_day: 17.5,
+            time_speed: 0.0,
+            is_paused: false,
+        });
+
+        let mut window = Window::default();
+        window.set_cursor_position(Some(Vec2::new(100.0, 100.0)));
+        let win_entity = app.world_mut().spawn(window).id();
+
+        app.world_mut().spawn((
+            Camera3d::default(),
+            CameraController::default(),
+            Projection::default(),
+        ));
+        app.world_mut().spawn((
+            Transform::default(),
+            Player {
+                speed: 5.0,
+                current_floor: 0,
+                path: default(),
+                keyboard_vel: Vec3::ZERO,
+                is_moving: false,
+            },
+        ));
+
+        // Метка времени
+        let time_label_entity = app
+            .world_mut()
+            .spawn((MenuTimeLabel, Text::new("")))
+            .id();
+
+        // 4 кнопки времени: 00:00 (12 ночи), 06:00 (6 утра), 12:00 (12 дня), 18:00 (6 вечера)
+        let times = [
+            (0.0, Vec2::new(50.0, 50.0)),
+            (6.0, Vec2::new(150.0, 50.0)),
+            (12.0, Vec2::new(250.0, 50.0)),
+            (18.0, Vec2::new(350.0, 50.0)),
+        ];
+
+        for (tod, pos) in times {
+            app.world_mut().spawn((
+                MenuButtonAction::SetTimeOfDay(tod),
+                ComputedNode {
+                    size: Vec2::new(80.0, 30.0),
+                    ..default()
+                },
+                UiGlobalTransform::from_xy(pos.x, pos.y),
+                MenuHoverable {
+                    base_color: Color::BLACK,
+                    hover_color: Color::WHITE,
+                },
+                BackgroundColor(Color::BLACK),
+            ));
+        }
+
+        app.add_systems(
+            Update,
+            (game_menu_interaction_system, update_game_menu_labels_system).chain(),
+        );
+
+        // Открываем меню
+        app.world_mut().resource_mut::<GameMenuState>().is_open = true;
+
+        // 1. Клик по 00:00 (12 ночи)
+        app.world_mut()
+            .get_mut::<Window>(win_entity)
+            .unwrap()
+            .set_cursor_position(Some(Vec2::new(50.0, 50.0)));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        assert_eq!(app.world().resource::<WorldClock>().time_of_day, 0.0);
+        assert_eq!(
+            app.world().get::<Text>(time_label_entity).unwrap().as_str(),
+            "Время суток: 00:00 (Ночь Древних)"
+        );
+
+        // 2. Клик по 06:00 (6 утра)
+        app.world_mut()
+            .get_mut::<Window>(win_entity)
+            .unwrap()
+            .set_cursor_position(Some(Vec2::new(150.0, 50.0)));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        assert_eq!(app.world().resource::<WorldClock>().time_of_day, 6.0);
+        assert_eq!(
+            app.world().get::<Text>(time_label_entity).unwrap().as_str(),
+            "Время суток: 06:00 (Туманный Рассвет)"
+        );
+
+        // 3. Клик по 12:00 (12 дня)
+        app.world_mut()
+            .get_mut::<Window>(win_entity)
+            .unwrap()
+            .set_cursor_position(Some(Vec2::new(250.0, 50.0)));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        assert_eq!(app.world().resource::<WorldClock>().time_of_day, 12.0);
+        assert_eq!(
+            app.world().get::<Text>(time_label_entity).unwrap().as_str(),
+            "Время суток: 12:00 (Пасмурный День)"
+        );
+
+        // 4. Клик по 18:00 (6 вечера)
+        app.world_mut()
+            .get_mut::<Window>(win_entity)
+            .unwrap()
+            .set_cursor_position(Some(Vec2::new(350.0, 50.0)));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+        assert_eq!(app.world().resource::<WorldClock>().time_of_day, 18.0);
+        assert_eq!(
+            app.world().get::<Text>(time_label_entity).unwrap().as_str(),
+            "Время суток: 18:00 (Кровавый Закат)"
         );
     }
 }

@@ -811,56 +811,41 @@ pub fn setup_world(
             parent.spawn((
                 PointLight {
                     color: Color::srgb(1.0, 0.85, 0.45),
-                    intensity: 80_000.0,
-                    range: 14.0,
+                    intensity: 95_000.0,
+                    range: 16.0,
                     shadow_maps_enabled: true,
                     ..default()
                 },
                 Transform::from_xyz(0.35, 1.0, 0.35),
                 PlayerLanternLight,
-                crate::atmosphere::FlickeringLight::lantern(80_000.0),
+                crate::atmosphere::FlickeringLight::torch(95_000.0),
             ));
         });
 
-    // Направленное небесное светило (Солнце / Луна) с объемными лучами Valheim (God Rays) и 4 каскадами теней
+    // Направленное небесное светило (Солнце / Луна) в эстетике Valheim с мягкими каскадами теней
     commands.spawn((
         DirectionalLight {
-            illuminance: 6_500.0,
+            illuminance: 14_000.0,
             shadow_maps_enabled: true,
-            color: Color::srgb(1.0, 0.55, 0.28),
+            color: Color::srgb(1.0, 0.65, 0.35),
             ..default()
         },
         Transform::from_xyz(25.0, 40.0, 25.0).looking_at(Vec3::ZERO, Vec3::Y),
-        bevy::light::VolumetricLight,
         bevy::light::CascadeShadowConfigBuilder {
             num_cascades: 4,
-            minimum_distance: 0.1,
-            maximum_distance: 85.0,
-            first_cascade_far_bound: 8.0,
+            minimum_distance: 0.5,
+            maximum_distance: 130.0,
+            first_cascade_far_bound: 16.0,
             overlap_proportion: 0.2,
         }
         .build(),
         crate::atmosphere::CelestialSunLight,
     ));
 
-    // Локальный объем тумана для объемного рассеивания лучей (God Rays) вокруг фокуса камеры
-    commands.spawn((
-        bevy::light::FogVolume {
-            fog_color: Color::srgb(0.20, 0.18, 0.24),
-            density_factor: 0.045,
-            scattering_asymmetry: 0.65,
-            absorption: 0.25,
-            scattering: 0.35,
-            ..default()
-        },
-        Transform::from_scale(Vec3::splat(70.0)),
-        crate::atmosphere::AtmosphericFogVolume,
-    ));
-
     // Глобальный рассеянный свет окружения (динамически управляется суточным циклом)
     commands.insert_resource(bevy::light::GlobalAmbientLight {
-        color: Color::srgb(0.40, 0.48, 0.60),
-        brightness: 75.0,
+        color: Color::srgb(0.52, 0.58, 0.70),
+        brightness: 160.0,
         ..default()
     });
 
