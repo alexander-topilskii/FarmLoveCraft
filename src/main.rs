@@ -3,6 +3,7 @@ mod camera;
 mod city_generator;
 mod defense;
 mod destruction;
+mod game_menu;
 mod navigation;
 mod player;
 mod rts_command;
@@ -27,6 +28,10 @@ use defense::{
 use destruction::{
     recompute_structural_integrity_system, update_destruction_effects_system, update_farm_crops_system,
     PlayerInventory, StructuralIntegrityDirty,
+};
+use game_menu::{
+    game_menu_interaction_system, setup_game_menu_ui, toggle_game_menu_system,
+    toggle_top_hud_system, update_game_menu_labels_system, GameMenuState,
 };
 use navigation::NavWorld;
 use player::{player_input_system, player_movement_system};
@@ -84,7 +89,8 @@ fn main() {
         .insert_resource(WaterSimulationTimer::default())
         .insert_resource(DetectiveEnergy::default())
         .insert_resource(DefenseWaveState::default())
-        .add_systems(Startup, setup_world)
+        .insert_resource(GameMenuState::default())
+        .add_systems(Startup, (setup_world, setup_game_menu_ui))
         .configure_sets(
             Update,
             (
@@ -102,6 +108,9 @@ fn main() {
                 rts_menu_interaction_system,
                 player_input_system,
                 support_caster_system,
+                toggle_top_hud_system,
+                toggle_game_menu_system,
+                game_menu_interaction_system,
             )
                 .in_set(GameSystemSet::Input),
         )
@@ -142,6 +151,7 @@ fn main() {
                 update_inventory_hud_system,
                 cull_distant_lights_system,
                 update_support_skillbar_hud_system,
+                update_game_menu_labels_system,
             )
                 .in_set(GameSystemSet::Presentation),
         )
@@ -170,6 +180,9 @@ mod tests {
                 rts_menu_interaction_system,
                 player_input_system,
                 support_caster_system,
+                toggle_top_hud_system,
+                toggle_game_menu_system,
+                game_menu_interaction_system,
             )
                 .in_set(GameSystemSet::Input),
         );
@@ -207,16 +220,18 @@ mod tests {
                 update_inventory_hud_system,
                 cull_distant_lights_system,
                 update_support_skillbar_hud_system,
+                update_game_menu_labels_system,
             )
                 .in_set(GameSystemSet::Presentation),
         );
         let mut world = World::new();
+        world.init_resource::<GameMenuState>();
         schedule
             .initialize(&mut world)
             .expect("Все ECS-системы должны инициализироваться без конфликтов запросов (B0001)");
 
         let mut startup_schedule = Schedule::new(Startup);
-        startup_schedule.add_systems(setup_world);
+        startup_schedule.add_systems((setup_world, setup_game_menu_ui));
         startup_schedule
             .initialize(&mut world)
             .expect("Startup-система должна инициализироваться без конфликтов");

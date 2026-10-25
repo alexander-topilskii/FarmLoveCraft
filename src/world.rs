@@ -843,22 +843,28 @@ pub fn setup_world(
         Transform::from_xyz(0.0, 18.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // Информационная плашка в левом верхнем углу экрана
+    // Информационная плашка в левом верхнем углу экрана (скрыта по умолчанию, открывается/закрывается по Tab)
     commands
-        .spawn(Node {
-            position_type: PositionType::Absolute,
-            top: Val::Px(14.0),
-            left: Val::Px(16.0),
-            flex_direction: FlexDirection::Column,
-            row_gap: Val::Px(6.0),
-            padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
-            ..default()
-        })
-        .insert(BackgroundColor(Color::srgba(0.06, 0.08, 0.10, 0.85)))
+        .spawn((
+            crate::game_menu::TopHudRoot,
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(44.0),
+                left: Val::Px(16.0),
+                flex_direction: FlexDirection::Column,
+                row_gap: Val::Px(6.0),
+                padding: UiRect::axes(Val::Px(12.0), Val::Px(8.0)),
+                border: UiRect::all(Val::Px(1.0)),
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.06, 0.08, 0.10, 0.88)),
+            BorderColor::all(Color::srgb(0.24, 0.36, 0.28)),
+            Visibility::Hidden,
+        ))
         .with_children(|parent| {
             parent.spawn((
                 BuildingHudText,
-                Text::new("Замок Исследователя — Этаж 1/2 | [Tab] Обзор другого этажа"),
+                Text::new("Замок Исследователя — Этаж 1/2 | [PgUp/PgDn] Обзор этажа"),
                 TextFont {
                     font_size: FontSize::Px(16.0),
                     ..default()

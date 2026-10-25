@@ -70,12 +70,20 @@ pub fn player_input_system(
     building_registry: Res<BuildingRegistry>,
     mut active_order: Option<ResMut<ActiveRtsOrder>>,
     menu_roots: Query<Entity, With<RtsContextMenuRoot>>,
+    menu_state: Option<Res<crate::game_menu::GameMenuState>>,
     camera_query: Query<(&Camera, &GlobalTransform, &CameraController)>,
     mut player_query: Query<(&mut Player, &Transform)>,
 ) {
     let Ok((mut player, player_transform)) = player_query.single_mut() else {
         return;
     };
+
+    // Если открыто главное меню — блокируем управление перемещением игрока
+    if menu_state.as_ref().map_or(false, |s| s.is_open) {
+        player.keyboard_vel = Vec3::ZERO;
+        return;
+    }
+
     let Ok((camera, camera_transform, cam_controller)) = camera_query.single() else {
         return;
     };

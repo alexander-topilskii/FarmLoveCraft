@@ -267,24 +267,25 @@ pub fn update_active_building_system(
     state.active_building = current_building;
     state.player_floor = player.current_floor;
 
-    // Позволяем игроку вручную переключить просматриваемый этаж внутри многоэтажного дома (Tab / PageUp / PageDown)
+    // Позволяем игроку вручную переключить просматриваемый этаж внутри многоэтажного дома (PageUp / PageDown)
     if let Some(b_id) = state.active_building {
         if let Some(b_def) = registry.get(b_id) {
             let max_floor = b_def.max_floor();
             if max_floor > 0 {
-                if keyboard_input.just_pressed(KeyCode::Tab) {
-                    let next_floor = (state.viewed_floor + 1) % (max_floor + 1);
+                if keyboard_input.just_pressed(KeyCode::PageUp) {
+                    let next_floor = (state.viewed_floor + 1).min(max_floor);
                     state.manual_floor_override = if next_floor == state.player_floor {
                         None
                     } else {
                         Some(next_floor)
                     };
-                } else if keyboard_input.just_pressed(KeyCode::PageUp) {
-                    let next_floor = (state.viewed_floor + 1).min(max_floor);
-                    state.manual_floor_override = Some(next_floor);
                 } else if keyboard_input.just_pressed(KeyCode::PageDown) {
                     let next_floor = (state.viewed_floor - 1).max(0);
-                    state.manual_floor_override = Some(next_floor);
+                    state.manual_floor_override = if next_floor == state.player_floor {
+                        None
+                    } else {
+                        Some(next_floor)
+                    };
                 }
             }
         }
@@ -656,7 +657,7 @@ pub fn update_building_hud_system(
             let current_display = state.viewed_floor + 1;
             if state.manual_floor_override.is_some() {
                 **text = format!(
-                    "{} — Обзор {}/{} эт. (Игрок на {} эт.) | [Tab] Сменить этаж",
+                    "{} — Обзор {}/{} эт. (Игрок на {} эт.) | [PgUp/PgDn] Сменить этаж",
                     def.name,
                     current_display,
                     total_floors,
@@ -664,7 +665,7 @@ pub fn update_building_hud_system(
                 );
             } else if total_floors > 1 {
                 **text = format!(
-                    "{} — Этаж {}/{} | [Tab] Обзор другого этажа",
+                    "{} — Этаж {}/{} | [PgUp/PgDn] Обзор этажа",
                     def.name, current_display, total_floors
                 );
             } else {
