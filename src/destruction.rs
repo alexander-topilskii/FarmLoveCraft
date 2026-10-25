@@ -194,6 +194,7 @@ impl Destructible {
         }
     }
 
+    #[allow(dead_code)]
     pub fn staircase(title: &'static str, colliders: Vec<ColliderId>) -> Self {
         Self {
             title,
@@ -322,6 +323,7 @@ pub enum StructuralKind {
 
 /// Компонент структурной целостности элемента постройки (по принципу Valheim)
 #[derive(Component, Clone, Debug)]
+#[allow(dead_code)]
 pub struct StructuralPiece {
     pub kind: StructuralKind,
     pub world_pos: Vec3,
@@ -359,6 +361,7 @@ impl StructuralPiece {
         (self.current_support / self.max_support).clamp(0.0, 1.0)
     }
 
+    #[allow(dead_code)]
     pub fn stability_label(&self) -> &'static str {
         let r = self.support_ratio();
         if r >= 0.95 {
@@ -666,20 +669,31 @@ pub fn update_destruction_effects_system(
     mut inventory: ResMut<PlayerInventory>,
     terrain: Res<WorldTerrain>,
     player_query: Query<&Transform, With<Player>>,
-    mut collapsing_query: Query<(
-        Entity,
-        &mut PendingStructuralCollapse,
-        &Transform,
-        Option<&mut Destructible>,
-    )>,
-    mut shake_query: Query<(Entity, &mut HitShake, &mut Transform), Without<PendingStructuralCollapse>>,
+    mut collapsing_query: Query<
+        (
+            Entity,
+            &mut PendingStructuralCollapse,
+            &Transform,
+            Option<&mut Destructible>,
+        ),
+        Without<Player>,
+    >,
+    mut shake_query: Query<
+        (Entity, &mut HitShake, &mut Transform),
+        (Without<Player>, Without<PendingStructuralCollapse>),
+    >,
     mut debris_query: Query<
         (Entity, &mut DebrisParticle, &mut Transform),
-        (Without<PendingStructuralCollapse>, Without<HitShake>),
+        (
+            Without<Player>,
+            Without<PendingStructuralCollapse>,
+            Without<HitShake>,
+        ),
     >,
     mut loot_query: Query<
         (Entity, &mut DroppedLoot, &mut Transform),
         (
+            Without<Player>,
             Without<PendingStructuralCollapse>,
             Without<HitShake>,
             Without<DebrisParticle>,
@@ -688,6 +702,7 @@ pub fn update_destruction_effects_system(
     mut crop_query: Query<
         (&mut TentacleCrop, &mut Transform),
         (
+            Without<Player>,
             Without<PendingStructuralCollapse>,
             Without<HitShake>,
             Without<DebrisParticle>,
@@ -809,5 +824,23 @@ mod tests {
         assert_eq!(roof.support_ratio(), 1.0);
         roof.current_support = 8.0;
         assert!(roof.support_ratio() < 0.15);
+    }
+
+    #[test]
+    fn test_demolition_clears_nav_collider_and_cascades_support() {
+        let mut nav = NavWorld::default();
+        // Ставим стену в (0.0, 10.0)
+        let wall_col = nav.add_box_on_floor(0.0, 10.0, 2.0, 0.38, 0);
+        assert!(
+            !nav.is_walkable_pos_on_floor(Vec2::new(0.0, 10.0), 0, 0.36),
+            "Стена должна блокировать проход до разрушения"
+        );
+
+        // Разрушаем стену -> удаляем её коллайдер
+        nav.remove_colliders(&[wall_col]);
+        assert!(
+            nav.is_walkable_pos_on_floor(Vec2::new(0.0, 10.0), 0, 0.36),
+            "После сноса стены через пролом можно свободно пройти"
+        );
     }
 }

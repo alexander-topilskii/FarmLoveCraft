@@ -78,6 +78,7 @@ impl Biome {
 
 /// Операция изменения рельефа (терраформинг по принципу Valheim)
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)]
 pub enum TerrainOp {
     /// Копать киркой/лопатой вниз
     Dig { depth: f32 },
@@ -93,6 +94,7 @@ pub enum TerrainOp {
 
 /// Компонент 3D-сущности чанка рельефа
 #[derive(Component)]
+#[allow(dead_code)]
 pub struct TerrainChunkEntity {
     pub coord: ChunkCoord,
 }
@@ -466,6 +468,7 @@ impl WorldTerrain {
 
 /// Набор ассетов для процедурного заселения новых чанков мира
 #[derive(Resource, Clone)]
+#[allow(dead_code)]
 pub struct ProceduralBiomeAssets {
     pub tree: Handle<WorldAsset>,
     pub bush: Handle<WorldAsset>,

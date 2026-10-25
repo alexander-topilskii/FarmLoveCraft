@@ -62,7 +62,6 @@ fn ray_plane_intersection_xz(ray: Ray3d, plane_y: f32) -> Option<Vec2> {
 
 #[allow(clippy::too_many_arguments)]
 pub fn player_input_system(
-    mut commands: Commands,
     mouse_button: Res<ButtonInput<MouseButton>>,
     keyboard_input: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window>,
@@ -70,7 +69,6 @@ pub fn player_input_system(
     building_state: Res<ActiveBuildingState>,
     building_registry: Res<BuildingRegistry>,
     mut active_order: Option<ResMut<ActiveRtsOrder>>,
-    ui_interactions: Query<&Interaction, With<Button>>,
     menu_roots: Query<Entity, With<RtsContextMenuRoot>>,
     camera_query: Query<(&Camera, &GlobalTransform, &CameraController)>,
     mut player_query: Query<(&mut Player, &Transform)>,
@@ -111,18 +109,11 @@ pub fn player_input_system(
 
     // 2. Клик мыши (LMB) для многоэтажного поиска пути A*
     if mouse_button.just_pressed(MouseButton::Left) {
-        // Если курсор находится над кнопкой открытого RTS-меню — не перехватываем клик на движение
-        if ui_interactions
-            .iter()
-            .any(|i| *i == Interaction::Pressed || *i == Interaction::Hovered)
-        {
+        // Если открыто контекстное RTS-меню — клик обрабатывается системой меню
+        if !menu_roots.is_empty() {
             return;
         }
 
-        // Закрываем контекстное меню при клике мимо него и сбрасываем активный RTS-приказ
-        for menu in &menu_roots {
-            commands.entity(menu).despawn();
-        }
         if let Some(ref mut order_res) = active_order {
             order_res.current = None;
             order_res.status_message.clear();

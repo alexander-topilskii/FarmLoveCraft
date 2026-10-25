@@ -115,8 +115,16 @@ pub struct RightClickTracker {
 #[derive(Component)]
 pub struct RtsContextMenuRoot;
 
-/// Действие кнопки внутри контекстного RTS-меню
+/// Действие кнопки внутри контекстного RTS-меню с экранным прямоугольником и горячей клавишей
 #[derive(Component, Clone, Debug)]
+pub struct RtsMenuOption {
+    pub action: RtsMenuAction,
+    pub screen_rect: Rect,
+    pub hotkey_index: usize,
+    pub base_color: Color,
+}
+
+#[derive(Clone, Debug)]
 pub enum RtsMenuAction {
     IssueOrder(RtsOrder),
     Cancel,
@@ -334,8 +342,11 @@ fn spawn_rts_context_menu(
     player_floor: i32,
     terrain: &WorldTerrain,
 ) {
-    let menu_left = cursor_pos.x.min((window_size.x - 320.0).max(12.0));
-    let menu_top = cursor_pos.y.min((window_size.y - 380.0).max(12.0));
+    let menu_width = 330.0_f32;
+    let menu_left = cursor_pos.x.min((window_size.x - menu_width - 12.0).max(12.0));
+    let menu_top = cursor_pos.y.min((window_size.y - 420.0).max(12.0));
+    let row_height = 26.0_f32;
+    let row_gap = 4.0_f32;
 
     let biome = terrain.sample_biome(world_click_pos.x, world_click_pos.z);
 
@@ -368,10 +379,10 @@ fn spawn_rts_context_menu(
                 position_type: PositionType::Absolute,
                 left: Val::Px(menu_left),
                 top: Val::Px(menu_top),
-                width: Val::Px(310.0),
+                width: Val::Px(menu_width),
                 flex_direction: FlexDirection::Column,
                 padding: UiRect::all(Val::Px(8.0)),
-                row_gap: Val::Px(4.0),
+                row_gap: Val::Px(row_gap),
                 border: UiRect::all(Val::Px(1.5)),
                 ..default()
             },
@@ -381,6 +392,10 @@ fn spawn_rts_context_menu(
         .with_children(|menu| {
             // Заголовок контекстного меню
             menu.spawn((
+                Node {
+                    height: Val::Px(22.0),
+                    ..default()
+                },
                 Text::new(header_title),
                 TextFont {
                     font_size: FontSize::Px(14.0),
@@ -389,11 +404,24 @@ fn spawn_rts_context_menu(
                 TextColor(Color::srgb(0.95, 0.85, 0.55)),
             ));
 
+            let mut item_idx = 0_usize;
+            let next_rect = |idx: usize| -> Rect {
+                let top_y = menu_top + 8.0 + 22.0 + row_gap + (idx as f32) * (row_height + row_gap);
+                Rect::from_corners(
+                    Vec2::new(menu_left + 8.0, top_y),
+                    Vec2::new(menu_left + menu_width - 8.0, top_y + row_height),
+                )
+            };
+
             // 1. Действия над выбранным разрушаемым объектом
             if let Some((target_entity, target_pos, dest, _, _)) = hit_target {
                 let obj_floor = if target_pos.y > 2.5 { 1 } else { player_floor };
+                let rect = next_rect(item_idx);
+                item_idx += 1;
                 spawn_menu_button(
                     menu,
+                    item_idx,
+                    rect,
                     format!("Разрушить: {}", dest.title),
                     Color::srgba(0.38, 0.14, 0.14, 0.92),
                     RtsMenuAction::IssueOrder(RtsOrder::Demolish {
@@ -405,8 +433,12 @@ fn spawn_rts_context_menu(
                 );
 
                 if dest.hp < dest.max_hp {
+                    let rect = next_rect(item_idx);
+                    item_idx += 1;
                     spawn_menu_button(
                         menu,
+                        item_idx,
+                        rect,
                         format!("Починить: {} (-1 Дерево)", dest.title),
                         Color::srgba(0.16, 0.32, 0.22, 0.92),
                         RtsMenuAction::IssueOrder(RtsOrder::Repair {
@@ -421,8 +453,13 @@ fn spawn_rts_context_menu(
             // 2. Действия терраформинга рельефа (на 0 этаже)
             if target_floor == 0 {
                 let xz = Vec2::new(world_click_pos.x, world_click_pos.z);
+
+                let rect = next_rect(item_idx);
+                item_idx += 1;
                 spawn_menu_button(
                     menu,
+                    item_idx,
+                    rect,
                     "Копать землю (+1 Земля, понизить)".to_string(),
                     Color::srgba(0.22, 0.18, 0.12, 0.92),
                     RtsMenuAction::IssueOrder(RtsOrder::Terraform {
@@ -433,8 +470,13 @@ fn spawn_rts_context_menu(
                         work_timer: 0.35,
                     }),
                 );
+
+                let rect = next_rect(item_idx);
+                item_idx += 1;
                 spawn_menu_button(
                     menu,
+                    item_idx,
+                    rect,
                     "Насыпать холм (-1 Земля, поднять)".to_string(),
                     Color::srgba(0.22, 0.18, 0.12, 0.92),
                     RtsMenuAction::IssueOrder(RtsOrder::Terraform {
@@ -445,8 +487,13 @@ fn spawn_rts_context_menu(
                         work_timer: 0.35,
                     }),
                 );
+
+                let rect = next_rect(item_idx);
+                item_idx += 1;
                 spawn_menu_button(
                     menu,
+                    item_idx,
+                    rect,
                     "Выровнять площадку под уровень ног".to_string(),
                     Color::srgba(0.18, 0.22, 0.26, 0.92),
                     RtsMenuAction::IssueOrder(RtsOrder::Terraform {
@@ -457,8 +504,13 @@ fn spawn_rts_context_menu(
                         work_timer: 0.35,
                     }),
                 );
+
+                let rect = next_rect(item_idx);
+                item_idx += 1;
                 spawn_menu_button(
                     menu,
+                    item_idx,
+                    rect,
                     "Посадить Щупальца (-1 Земля -> Страхи)".to_string(),
                     Color::srgba(0.12, 0.28, 0.22, 0.92),
                     RtsMenuAction::IssueOrder(RtsOrder::Build {
@@ -493,8 +545,12 @@ fn spawn_rts_context_menu(
                     snapped_pos
                 };
 
+                let rect = next_rect(item_idx);
+                item_idx += 1;
                 spawn_menu_button(
                     menu,
+                    item_idx,
+                    rect,
                     format!("Строить: {} ({})", bp.title(), cost_str),
                     Color::srgba(0.14, 0.20, 0.28, 0.92),
                     RtsMenuAction::IssueOrder(RtsOrder::Build {
@@ -508,8 +564,12 @@ fn spawn_rts_context_menu(
             }
 
             // Кнопка отмены
+            let rect = next_rect(item_idx);
+            item_idx += 1;
             spawn_menu_button(
                 menu,
+                item_idx,
+                rect,
                 "Отмена [Esc]".to_string(),
                 Color::srgba(0.15, 0.15, 0.18, 0.90),
                 RtsMenuAction::Cancel,
@@ -519,48 +579,103 @@ fn spawn_rts_context_menu(
 
 fn spawn_menu_button(
     parent: &mut ChildSpawnerCommands,
+    hotkey_index: usize,
+    screen_rect: Rect,
     label: String,
     bg_color: Color,
     action: RtsMenuAction,
 ) {
+    let numbered = if hotkey_index <= 9 {
+        format!("[{}] {}", hotkey_index, label)
+    } else {
+        label
+    };
     parent
         .spawn((
-            Button,
-            action,
+            RtsMenuOption {
+                action,
+                screen_rect,
+                hotkey_index,
+                base_color: bg_color,
+            },
             Node {
                 width: Val::Percent(100.0),
-                padding: UiRect::axes(Val::Px(8.0), Val::Px(5.0)),
+                height: Val::Px(26.0),
+                padding: UiRect::axes(Val::Px(8.0), Val::Px(4.0)),
+                align_items: AlignItems::Center,
                 ..default()
             },
             BackgroundColor(bg_color),
         ))
         .with_children(|btn| {
             btn.spawn((
-                Text::new(label),
+                Text::new(numbered),
                 TextFont {
                     font_size: FontSize::Px(13.0),
                     ..default()
                 },
-                TextColor(Color::srgb(0.90, 0.90, 0.86)),
+                TextColor(Color::srgb(0.92, 0.92, 0.88)),
             ));
         });
 }
 
-/// Система обработки нажатий на пункты RTS-меню и назначения маршрута A* Сыщику
+/// Система обработки наведения, кликов ЛКМ и горячих клавиш [1-9] по пунктам RTS-меню
 pub fn rts_menu_interaction_system(
     mut commands: Commands,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    windows: Query<&Window>,
     nav_world: Res<NavWorld>,
     mut active_order: ResMut<ActiveRtsOrder>,
-    interaction_query: Query<(&Interaction, &RtsMenuAction), (Changed<Interaction>, With<Button>)>,
+    mut options_query: Query<(&RtsMenuOption, &mut BackgroundColor)>,
     menu_roots: Query<Entity, With<RtsContextMenuRoot>>,
     mut player_query: Query<(&mut Player, &Transform)>,
 ) {
-    let mut chosen_action: Option<RtsMenuAction> = None;
-    for (interaction, action) in &interaction_query {
-        if *interaction == Interaction::Pressed {
-            chosen_action = Some(action.clone());
+    if menu_roots.is_empty() {
+        return;
+    }
+
+    let cursor_pos = windows.single().ok().and_then(|w| w.cursor_position());
+    let mut pressed_hotkey: Option<usize> = None;
+    for (idx, key) in [
+        (1, KeyCode::Digit1),
+        (2, KeyCode::Digit2),
+        (3, KeyCode::Digit3),
+        (4, KeyCode::Digit4),
+        (5, KeyCode::Digit5),
+        (6, KeyCode::Digit6),
+        (7, KeyCode::Digit7),
+        (8, KeyCode::Digit8),
+        (9, KeyCode::Digit9),
+    ] {
+        if keyboard_input.just_pressed(key) {
+            pressed_hotkey = Some(idx);
             break;
         }
+    }
+
+    let lmb_clicked = mouse_button.just_pressed(MouseButton::Left);
+    let mut chosen_action: Option<RtsMenuAction> = None;
+
+    for (opt, mut bg) in &mut options_query {
+        let hovered = cursor_pos.map_or(false, |cp| opt.screen_rect.contains(cp));
+        if hovered {
+            *bg = BackgroundColor(Color::srgba(0.32, 0.48, 0.38, 0.98));
+        } else {
+            *bg = BackgroundColor(opt.base_color);
+        }
+
+        if (lmb_clicked && hovered) || pressed_hotkey == Some(opt.hotkey_index) {
+            chosen_action = Some(opt.action.clone());
+        }
+    }
+
+    // Если кликнули ЛКМ мимо меню — просто закрываем меню
+    if lmb_clicked && chosen_action.is_none() {
+        for root in &menu_roots {
+            commands.entity(root).despawn();
+        }
+        return;
     }
 
     let Some(action) = chosen_action else {
@@ -807,7 +922,7 @@ pub fn execute_rts_order_system(
             let dist = player_xz.distance(build_xz);
 
             // Рисуем изумрудный голографический контур (Ghost Preview) будущей постройки
-            gizmos.cuboid(
+            gizmos.cube(
                 Transform::from_translation(*pos + Vec3::Y * 1.5)
                     .with_rotation(Quat::from_rotation_y(*yaw))
                     .with_scale(Vec3::new(3.6, 3.0, 0.8)),
