@@ -74,13 +74,13 @@ pub struct SkyUniforms {
 impl Default for SkyUniforms {
     fn default() -> Self {
         Self {
-            zenith_color: LinearRgba::new(0.12, 0.28, 0.55, 1.0),
-            horizon_color: LinearRgba::new(0.65, 0.50, 0.40, 1.0),
+            zenith_color: LinearRgba::new(0.12, 0.18, 0.35, 1.0),
+            horizon_color: LinearRgba::new(0.80, 0.50, 0.32, 1.0),
             nadir_color: LinearRgba::new(0.08, 0.10, 0.12, 1.0),
-            sun_dir_and_intensity: Vec4::new(0.65, 0.35, 0.40, 1.4),
-            sun_color: LinearRgba::new(1.0, 0.58, 0.28, 1.0),
+            sun_dir_and_intensity: Vec4::new(0.65, 0.35, 0.40, 1.0),
+            sun_color: LinearRgba::new(1.0, 0.68, 0.38, 1.0),
             moon_dir_and_phase: Vec4::new(-0.65, 0.40, -0.40, 1.0),
-            moon_color: LinearRgba::new(0.35, 0.85, 0.95, 1.0),
+            moon_color: LinearRgba::new(0.55, 0.75, 0.95, 1.0),
             cloud_color: LinearRgba::new(0.45, 0.38, 0.42, 0.75),
             params: Vec4::new(0.0, 0.2, 0.45, 0.0),
         }
@@ -242,27 +242,27 @@ pub struct AtmosphereState {
 impl Default for AtmosphereState {
     fn default() -> Self {
         Self {
-            sun_color: Color::srgb(1.0, 0.58, 0.28),
-            sun_illuminance: 14_000.0,
+            sun_color: Color::srgb(1.0, 0.68, 0.38),
+            sun_illuminance: 8_000.0,
             sun_direction: Vec3::new(0.65, 0.35, 0.40).normalize(),
 
-            moon_color: Color::srgb(0.35, 0.85, 0.95),
+            moon_color: Color::srgb(0.55, 0.75, 0.95),
             moon_direction: Vec3::new(-0.65, 0.40, -0.40).normalize(),
 
-            ambient_color: Color::srgb(0.52, 0.58, 0.70),
-            ambient_brightness: 160.0,
+            ambient_color: Color::srgb(0.60, 0.54, 0.64),
+            ambient_brightness: 420.0,
 
-            fog_color: Color::srgb(0.42, 0.48, 0.58),
+            fog_color: Color::srgb(0.48, 0.52, 0.58),
             fog_directional_color: Color::srgba(1.0, 0.75, 0.45, 0.65),
             fog_directional_exponent: 14.0,
             fog_extinction: Vec3::splat(0.005),
             fog_inscattering: Vec3::splat(0.003),
 
             fog_volume_density: 0.0,
-            fog_volume_color: Color::srgb(0.42, 0.48, 0.58),
+            fog_volume_color: Color::srgb(0.48, 0.52, 0.58),
 
-            sky_zenith: Color::srgb(0.12, 0.28, 0.55),
-            sky_horizon: Color::srgb(0.65, 0.50, 0.40),
+            sky_zenith: Color::srgb(0.12, 0.18, 0.35),
+            sky_horizon: Color::srgb(0.80, 0.50, 0.32),
             sky_nadir: Color::srgb(0.08, 0.10, 0.12),
 
             stars_intensity: 0.2,
@@ -509,57 +509,57 @@ fn update_atmosphere_interpolation_system(
     let tod = clock.time_of_day;
     let (target_sun_col, target_sun_illum, target_ambient_col, target_ambient_bright, target_sky_zenith, target_sky_horiz, target_stars) =
         if tod >= 5.0 && tod < 8.0 {
-            // Рассвет: розово-золотой горизонт, длинные теплые тени
+            // Рассвет: розово-золотой горизонт, длинные мягкие тени
             let t = (tod - 5.0) / 3.0;
             (
-                Color::srgb(1.0, 0.72, 0.52),
-                12_000.0 * t + 4_000.0 * (1.0 - t),
-                Color::srgb(0.50, 0.52, 0.65),
-                140.0,
-                Color::srgb(0.14, 0.22, 0.45),
-                Color::srgb(0.75, 0.48, 0.38),
+                Color::srgb(1.0, 0.82, 0.68),
+                7_000.0 * t + 3_000.0 * (1.0 - t),
+                Color::srgb(0.58, 0.58, 0.66),
+                380.0,
+                Color::srgb(0.14, 0.22, 0.40),
+                Color::srgb(0.70, 0.55, 0.48),
                 (1.0 - t) * 0.4,
             )
         } else if tod >= 8.0 && tod < 17.0 {
-            // День: яркое живописное освещение Valheim
+            // День: естественный сбалансированный свет Valheim (мягкие тени, нет неонового пересвета)
             (
-                Color::srgb(0.98, 0.96, 0.92),
-                18_000.0,
-                Color::srgb(0.55, 0.65, 0.78),
-                180.0,
-                Color::srgb(0.18, 0.38, 0.68),
-                Color::srgb(0.62, 0.72, 0.85),
+                Color::srgb(1.0, 0.96, 0.90),
+                8_500.0,
+                Color::srgb(0.62, 0.64, 0.70),
+                480.0,
+                Color::srgb(0.20, 0.35, 0.55),
+                Color::srgb(0.58, 0.64, 0.72),
                 0.0,
             )
         } else if tod >= 17.0 && tod < 20.5 {
-            // Закат: багрово-янтарное светило, золотой час
+            // Закат: багрово-янтарный золотой час с мягким заполнением теней
             let t = (tod - 17.0) / 3.5;
             (
-                Color::srgb(1.0, 0.58, 0.25),
-                14_000.0 * (1.0 - t) + 5_000.0 * t,
-                Color::srgb(0.55, 0.46, 0.62),
-                150.0 * (1.0 - t) + 100.0 * t,
-                Color::srgb(0.10, 0.18, 0.38),
-                Color::srgb(0.88, 0.45, 0.25),
+                Color::srgb(1.0, 0.68, 0.38),
+                8_000.0 * (1.0 - t) + 3_500.0 * t,
+                Color::srgb(0.60, 0.54, 0.64),
+                420.0 * (1.0 - t) + 260.0 * t,
+                Color::srgb(0.12, 0.18, 0.35),
+                Color::srgb(0.80, 0.50, 0.32),
                 t * 0.45,
             )
         } else {
-            // Ночь: бледно-лазурная Луна Бездны и читаемое окружение
+            // Ночь: читаемая лунная ночь без черных провалов
             (
-                Color::srgb(0.35, 0.85, 0.95),
-                4_200.0,
-                Color::srgb(0.22, 0.30, 0.45),
-                85.0,
-                Color::srgb(0.02, 0.05, 0.10),
-                Color::srgb(0.08, 0.16, 0.24),
+                Color::srgb(0.55, 0.75, 0.95),
+                2_400.0,
+                Color::srgb(0.35, 0.42, 0.55),
+                160.0,
+                Color::srgb(0.02, 0.04, 0.08),
+                Color::srgb(0.08, 0.12, 0.18),
                 0.85,
             )
         };
 
-    // Модификаторы по Биому
+    // Модификаторы по Биому: естественные нордические туманы
     let (biome_fog_col, biome_fog_dir_col, biome_fog_ext, biome_rain, biome_spores, biome_wind) = match sample_biome {
         Biome::ArkhamCitadel => (
-            Color::srgb(0.45, 0.50, 0.60),
+            Color::srgb(0.50, 0.53, 0.58),
             Color::srgba(1.0, 0.75, 0.45, 0.65),
             Vec3::splat(0.005),
             0.15,
@@ -567,40 +567,40 @@ fn update_atmosphere_interpolation_system(
             0.6,
         ),
         Biome::InnsmouthCity => (
-            Color::srgb(0.35, 0.52, 0.58), // морской бирюзовый туман
-            Color::srgba(0.5, 0.9, 0.85, 0.70),
+            Color::srgb(0.45, 0.52, 0.55), // прохладный морской туман
+            Color::srgba(0.5, 0.85, 0.85, 0.70),
             Vec3::splat(0.007),
             0.45,
             0.15,
             1.1,
         ),
         Biome::InnsmouthSwamp => (
-            Color::srgb(0.30, 0.50, 0.40), // изумрудный болотный туман
-            Color::srgba(0.35, 0.95, 0.65, 0.85),
+            Color::srgb(0.42, 0.48, 0.44), // приглушенный болотный туман
+            Color::srgba(0.45, 0.85, 0.65, 0.85),
             Vec3::splat(0.008),
             0.65,
             0.90,
             0.7,
         ),
         Biome::WitchVillage => (
-            Color::srgb(0.48, 0.38, 0.52), // фиолетово-дымный вечер
-            Color::srgba(0.9, 0.55, 0.8, 0.75),
+            Color::srgb(0.52, 0.46, 0.54), // дымчато-сумеречный вечер
+            Color::srgba(0.85, 0.60, 0.80, 0.75),
             Vec3::splat(0.006),
             0.20,
             0.40,
             0.8,
         ),
         Biome::Darkwoods => (
-            Color::srgb(0.35, 0.45, 0.40), // хвойный сумрак
-            Color::srgba(1.0, 0.80, 0.40, 0.90),
+            Color::srgb(0.44, 0.48, 0.45), // хвойная лесная дымка
+            Color::srgba(0.95, 0.80, 0.50, 0.85),
             Vec3::splat(0.007),
             0.10,
             0.75,
             0.5,
         ),
         Biome::EldritchRuins => (
-            Color::srgb(0.46, 0.36, 0.52), // пустоши Древних
-            Color::srgba(0.85, 0.35, 0.95, 0.80),
+            Color::srgb(0.48, 0.44, 0.52), // древний серый сумрак
+            Color::srgba(0.80, 0.45, 0.90, 0.75),
             Vec3::splat(0.008),
             0.05,
             0.85,
@@ -880,32 +880,35 @@ pub fn setup_cinematic_camera_bundle(
         },
         Tonemapping::TonyMcMapface,
         Bloom {
-            intensity: 0.18,
-            low_frequency_boost: 0.65,
-            high_pass_frequency: 0.85,
+            intensity: 0.08,
+            low_frequency_boost: 0.35,
+            high_pass_frequency: 0.92,
             composite_mode: BloomCompositeMode::EnergyConserving,
             ..Bloom::NATURAL
         },
         ColorGrading {
             global: ColorGradingGlobal {
-                exposure: 0.08,
-                temperature: -0.02,
-                tint: -0.01,
+                exposure: -0.05,
+                temperature: 0.01,
+                tint: 0.0,
+                post_saturation: 0.84,
                 ..default()
             },
             shadows: ColorGradingSection {
-                saturation: 0.95,
-                contrast: 1.05,
-                ..default()
+                saturation: 0.80,
+                contrast: 0.92,
+                lift: 0.045, // Защита от черных провалов: тени мягкие, полупрозрачные и детализированные
+                gain: 1.10,
+                gamma: 0.95,
             },
             midtones: ColorGradingSection {
-                saturation: 1.05,
-                contrast: 1.05,
+                saturation: 0.86,
+                contrast: 1.00,
                 ..default()
             },
             highlights: ColorGradingSection {
-                saturation: 0.98,
-                contrast: 1.02,
+                saturation: 0.88,
+                contrast: 0.98,
                 ..default()
             },
         },
@@ -913,7 +916,7 @@ pub fn setup_cinematic_camera_bundle(
         ScreenSpaceAmbientOcclusion::default(),
         bevy::anti_alias::fxaa::Fxaa::default(),
         DistanceFog {
-            color: Color::srgb(0.45, 0.50, 0.60),
+            color: Color::srgb(0.50, 0.53, 0.58),
             directional_light_color: Color::srgba(1.0, 0.75, 0.45, 0.65),
             directional_light_exponent: 14.0,
             falloff: FogFalloff::Linear {

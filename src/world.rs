@@ -825,9 +825,9 @@ pub fn setup_world(
     // Направленное небесное светило (Солнце / Луна) в эстетике Valheim с мягкими каскадами теней
     commands.spawn((
         DirectionalLight {
-            illuminance: 14_000.0,
+            illuminance: 8_500.0,
             shadow_maps_enabled: true,
-            color: Color::srgb(1.0, 0.65, 0.35),
+            color: Color::srgb(1.0, 0.96, 0.90),
             ..default()
         },
         Transform::from_xyz(25.0, 40.0, 25.0).looking_at(Vec3::ZERO, Vec3::Y),
@@ -844,8 +844,8 @@ pub fn setup_world(
 
     // Глобальный рассеянный свет окружения (динамически управляется суточным циклом)
     commands.insert_resource(bevy::light::GlobalAmbientLight {
-        color: Color::srgb(0.52, 0.58, 0.70),
-        brightness: 160.0,
+        color: Color::srgb(0.60, 0.54, 0.64),
+        brightness: 420.0,
         ..default()
     });
 

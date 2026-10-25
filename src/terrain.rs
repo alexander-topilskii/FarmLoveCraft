@@ -412,33 +412,33 @@ impl WorldTerrain {
                 1.0,
             ],
             SurfaceMod::Cultivated => [
-                (0.15 + micro_jitter * 0.5).clamp(0.05, 1.0),
-                (0.26 + micro_jitter).clamp(0.05, 1.0),
-                (0.18 + micro_jitter * 0.5).clamp(0.05, 1.0),
+                (0.14 + micro_jitter * 0.5).clamp(0.05, 1.0),
+                (0.19 + micro_jitter).clamp(0.05, 1.0),
+                (0.14 + micro_jitter * 0.5).clamp(0.05, 1.0),
                 1.0,
             ],
             SurfaceMod::Paved => [
-                (0.28 + micro_jitter * 0.8).clamp(0.05, 1.0),
-                (0.29 + micro_jitter * 0.8).clamp(0.05, 1.0),
-                (0.31 + micro_jitter * 0.8).clamp(0.05, 1.0),
+                (0.23 + micro_jitter * 0.8).clamp(0.05, 1.0),
+                (0.23 + micro_jitter * 0.8).clamp(0.05, 1.0),
+                (0.24 + micro_jitter * 0.8).clamp(0.05, 1.0),
                 1.0,
             ],
             SurfaceMod::Natural => {
                 let biome = self.sample_biome(wx, wz);
                 let base_rgb = match biome {
-                    Biome::ArkhamCitadel => [0.12, 0.19, 0.14],
-                    Biome::InnsmouthCity => [0.18, 0.20, 0.22],
-                    Biome::WitchVillage => [0.16, 0.15, 0.12],
+                    Biome::ArkhamCitadel => [0.16, 0.17, 0.15],
+                    Biome::InnsmouthCity => [0.17, 0.18, 0.19],
+                    Biome::WitchVillage => [0.16, 0.14, 0.13],
                     Biome::InnsmouthSwamp => {
                         if h < -0.15 {
-                            // Биолюминесцентная болотная тина в низинах
-                            [0.10, 0.26, 0.21]
+                            // Приглушенная болотная тина в низинах
+                            [0.12, 0.18, 0.15]
                         } else {
-                            [0.11, 0.22, 0.16]
+                            [0.13, 0.17, 0.13]
                         }
                     }
-                    Biome::Darkwoods => [0.10, 0.17, 0.12],
-                    Biome::EldritchRuins => [0.19, 0.21, 0.23],
+                    Biome::Darkwoods => [0.13, 0.15, 0.12],
+                    Biome::EldritchRuins => [0.18, 0.19, 0.21],
                 };
                 [
                     (base_rgb[0] + micro_jitter).clamp(0.02, 1.0),
