@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use crate::destruction::{
-    spawn_debris_burst, spawn_loot_drops, Destructible, DestructibleMaterial, PlayerInventory,
-    ResourceType, SharedVfxAssets, TentacleCrop,
+    spawn_debris_burst, spawn_loot_drops, Destructible, DestructibleMaterial, ResourceType,
+    SharedVfxAssets, TentacleCrop,
 };
 use crate::navigation::NavWorld;
 use crate::player::Player;
@@ -177,8 +177,8 @@ pub fn defense_enemy_ai_system(
         &mut DefenseEnemy,
         &mut Transform,
         Option<&FearedDebuff>,
-    )>,
-    mut crops_query: Query<(&Transform, &mut Destructible, Option<&EmpowerBuff>), With<TentacleCrop>>,
+    ), Without<TentacleCrop>>,
+    mut crops_query: Query<(&Transform, &mut Destructible, Option<&EmpowerBuff>), (With<TentacleCrop>, Without<DefenseEnemy>)>,
 ) {
     let dt = time.delta_secs();
 
@@ -192,11 +192,9 @@ pub fn defense_enemy_ai_system(
         let enemy_xz = Vec2::new(tf.translation.x, tf.translation.z);
 
         // 1. Влияние течения воды Minecraft на физику перемещения монстров (Фаза 3, Шаг 3.3)
-        let water_level = water_world.sample_water_level(enemy_xz.x, enemy_xz.y);
-        let water_flow = water_world.sample_water_flow(enemy_xz.x, enemy_xz.y);
-        if water_level > 0 {
-            let flow_strength = (water_level as f32 / 8.0) * 3.8;
-            enemy.water_push_force = water_flow * flow_strength;
+        let flow_vel = water_world.sample_flow_velocity(enemy_xz.x, enemy_xz.y);
+        if flow_vel.length_squared() > 0.01 {
+            enemy.water_push_force = Vec2::new(flow_vel.x, flow_vel.z);
         } else {
             enemy.water_push_force = enemy.water_push_force.lerp(Vec2::ZERO, dt * 5.0);
         }

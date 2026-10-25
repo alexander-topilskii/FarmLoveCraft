@@ -848,6 +848,17 @@ pub fn setup_world(
                 },
                 TextColor(Color::srgb(0.58, 0.90, 0.72)),
             ));
+            parent.spawn((
+                crate::defense::SupportSkillbarText,
+                Text::new(
+                    "Саппорт-Инженер: [1] Живительный Ихор | [2] Починка | [3] Ярость Бездны | [4] Вспышка Фонаря | [E] Ритуал Катакомб",
+                ),
+                TextFont {
+                    font_size: FontSize::Px(13.0),
+                    ..default()
+                },
+                TextColor(Color::srgb(0.95, 0.85, 0.45)),
+            ));
         });
 }
 

@@ -1,5 +1,6 @@
 mod building;
 mod camera;
+mod defense;
 mod destruction;
 mod navigation;
 mod player;
@@ -17,6 +18,11 @@ use building::{
     CutawayMaterialCache,
 };
 use camera::{camera_controller_system, cull_distant_lights_system};
+use defense::{
+    altar_ritual_defense_system, defense_enemy_ai_system, support_caster_system,
+    update_buffs_and_debuffs_system, update_support_skillbar_hud_system, void_rift_spawner_system,
+    DefenseWaveState, DetectiveEnergy,
+};
 use destruction::{
     recompute_structural_integrity_system, update_destruction_effects_system, update_farm_crops_system,
     PlayerInventory, StructuralIntegrityDirty,
@@ -75,6 +81,8 @@ fn main() {
         .insert_resource(CutawayMaterialCache::default())
         .insert_resource(WaterWorld::default())
         .insert_resource(WaterSimulationTimer::default())
+        .insert_resource(DetectiveEnergy::default())
+        .insert_resource(DefenseWaveState::default())
         .add_systems(Startup, setup_world)
         .configure_sets(
             Update,
@@ -92,6 +100,7 @@ fn main() {
                 rts_right_click_menu_system,
                 rts_menu_interaction_system,
                 player_input_system,
+                support_caster_system,
             )
                 .in_set(GameSystemSet::Input),
         )
@@ -105,6 +114,10 @@ fn main() {
                 update_farm_crops_system,
                 water_simulation_system,
                 water_flow_physics_system,
+                altar_ritual_defense_system,
+                void_rift_spawner_system,
+                defense_enemy_ai_system,
+                update_buffs_and_debuffs_system,
             )
                 .in_set(GameSystemSet::Simulation),
         )
@@ -127,6 +140,7 @@ fn main() {
                 update_building_hud_system,
                 update_inventory_hud_system,
                 cull_distant_lights_system,
+                update_support_skillbar_hud_system,
             )
                 .in_set(GameSystemSet::Presentation),
         )
@@ -154,6 +168,7 @@ mod tests {
                 rts_right_click_menu_system,
                 rts_menu_interaction_system,
                 player_input_system,
+                support_caster_system,
             )
                 .in_set(GameSystemSet::Input),
         );
@@ -166,6 +181,10 @@ mod tests {
                 update_farm_crops_system,
                 water_simulation_system,
                 water_flow_physics_system,
+                altar_ritual_defense_system,
+                void_rift_spawner_system,
+                defense_enemy_ai_system,
+                update_buffs_and_debuffs_system,
             )
                 .in_set(GameSystemSet::Simulation),
         );
@@ -186,6 +205,7 @@ mod tests {
                 update_building_hud_system,
                 update_inventory_hud_system,
                 cull_distant_lights_system,
+                update_support_skillbar_hud_system,
             )
                 .in_set(GameSystemSet::Presentation),
         );

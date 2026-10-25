@@ -115,6 +115,7 @@ impl WaterWorld {
     }
 
     /// Возвращает уровень воды в заданной мировой точке (0 = сухо, 1..=8 = вода)
+    #[allow(dead_code)]
     pub fn sample_water_level(&self, x: f32, z: f32) -> u8 {
         let grid = Self::world_to_grid(x, z);
         self.cells.get(&grid).map(|c| c.level).unwrap_or(0)

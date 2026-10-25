@@ -10,6 +10,7 @@ use crate::world::InteriorKitAssets;
 
 /// Древний Алтарь Призыва (центр обороны Замка/Катакомб)
 #[derive(Component, Debug, Clone)]
+#[allow(dead_code)]
 pub struct AltarOfSummoning {
     pub ritual_active: bool,
     pub current_wave: u32,
@@ -36,6 +37,7 @@ impl Default for AltarOfSummoning {
 
 /// Разлом Бездны — портал появления волн врагов в Катакомбах
 #[derive(Component, Debug, Clone)]
+#[allow(dead_code)]
 pub struct VoidRiftPortal {
     pub portal_id: u32,
     pub spawn_timer: f32,
@@ -45,6 +47,7 @@ pub struct VoidRiftPortal {
 
 /// Виды порождений Бездны в оборонных волнах
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum EnemyKind {
     DeepOne,
     Cultist,
@@ -53,6 +56,7 @@ pub enum EnemyKind {
 
 /// Враг, идущий по коридору Катакомб к Алтарю Призыва
 #[derive(Component, Debug, Clone)]
+#[allow(dead_code)]
 pub struct DefenseEnemy {
     pub kind: EnemyKind,
     pub hp: f32,
