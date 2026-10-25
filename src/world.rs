@@ -628,14 +628,15 @@ pub fn setup_world(
                 keyboard_vel: Vec3::ZERO,
                 is_moving: false,
             },
-            Transform::from_xyz(0.0, 0.08, 4.0),
+            Transform::from_xyz(0.0, 0.08, 4.0)
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
             Visibility::default(),
         ))
         .with_children(|parent| {
             parent
                 .spawn((
                     WorldAssetRoot(detective_scene),
-                    Transform::from_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                    Transform::default(),
                 ))
                 .observe(on_character_scene_ready);
 
@@ -647,7 +648,7 @@ pub fn setup_world(
                     shadow_maps_enabled: true,
                     ..default()
                 },
-                Transform::from_xyz(0.35, 1.0, -0.35),
+                Transform::from_xyz(0.35, 1.0, 0.35),
             ));
         });
 
@@ -884,15 +885,14 @@ fn spawn_investigator_castle(
 
             floor0.spawn((
                 WorldAssetRoot(kit.chair.clone()),
-                Transform::from_xyz(-4.8, floor0_y, -3.0)
-                    .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                Transform::from_xyz(-4.8, floor0_y, -3.0),
             ));
             nav_world.add_box_on_floor(-4.8, -3.0, 0.44, 0.44, 0);
 
             floor0.spawn((
                 WorldAssetRoot(kit.chair.clone()),
                 Transform::from_xyz(-6.8, floor0_y, -1.5)
-                    .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
+                    .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
             ));
             nav_world.add_box_on_floor(-6.8, -1.5, 0.44, 0.44, 0);
 
@@ -900,8 +900,7 @@ fn spawn_investigator_castle(
             for bx in [-6.5, 6.5] {
                 floor0.spawn((
                     WorldAssetRoot(kit.bookcase.clone()),
-                    Transform::from_xyz(bx, floor0_y, -9.1)
-                        .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                    Transform::from_xyz(bx, floor0_y, -9.1),
                     CutawayAttachedProp::new(castle_id, 0, n_north, floor0_y),
                 ));
                 nav_world.add_box_on_floor(bx, -9.1, 1.28, 0.40, 0);
@@ -911,7 +910,7 @@ fn spawn_investigator_castle(
             floor0.spawn((
                 WorldAssetRoot(kit.fireplace.clone()),
                 Transform::from_xyz(-9.0, floor0_y, -1.0)
-                    .with_rotation(Quat::from_rotation_y(-std::f32::consts::FRAC_PI_2)),
+                    .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
                 CutawayAttachedProp::new(castle_id, 0, n_west, floor0_y),
             ));
             nav_world.add_box_on_floor(-9.0, -1.0, 0.75, 1.78, 0);
@@ -954,8 +953,7 @@ fn spawn_investigator_castle(
             // Напольные часы у северной стены
             floor0.spawn((
                 WorldAssetRoot(kit.clock.clone()),
-                Transform::from_xyz(3.4, floor0_y, -9.1)
-                    .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                Transform::from_xyz(3.4, floor0_y, -9.1),
                 CutawayAttachedProp::new(castle_id, 0, n_north, floor0_y),
             ));
             nav_world.add_box_on_floor(3.4, -9.1, 0.50, 0.40, 0);
@@ -1151,8 +1149,7 @@ fn spawn_investigator_castle(
             for bx in [-6.5, -2.5, 2.5, 6.5] {
                 floor1.spawn((
                     WorldAssetRoot(kit.bookcase.clone()),
-                    Transform::from_xyz(bx, floor1_walk_y, -9.1)
-                        .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                    Transform::from_xyz(bx, floor1_walk_y, -9.1),
                     CutawayAttachedProp::new(castle_id, 1, n_north, floor1_walk_y),
                 ));
                 nav_world.add_box_on_floor(bx, -9.1, 1.28, 0.40, 1);
@@ -1171,8 +1168,7 @@ fn spawn_investigator_castle(
 
             floor1.spawn((
                 WorldAssetRoot(kit.chair.clone()),
-                Transform::from_xyz(-3.5, floor1_walk_y, -6.5)
-                    .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+                Transform::from_xyz(-3.5, floor1_walk_y, -6.5),
             ));
             nav_world.add_box_on_floor(-3.5, -6.5, 0.44, 0.44, 1);
 
@@ -1444,9 +1440,9 @@ fn spawn_enterable_town_house(
             };
             let back_normal = if door_on_south { n_north } else { n_south };
             let back_rot = if door_on_south {
-                Quat::from_rotation_y(std::f32::consts::PI)
-            } else {
                 Quat::IDENTITY
+            } else {
+                Quat::from_rotation_y(std::f32::consts::PI)
             };
             floor0.spawn((
                 WorldAssetRoot(kit.bookcase.clone()),
