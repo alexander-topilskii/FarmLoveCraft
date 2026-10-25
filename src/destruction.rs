@@ -53,6 +53,73 @@ pub struct ResourceModelAssets {
     pub spores: Handle<WorldAsset>,
 }
 
+/// Кэшированные меши и материалы для эффектов осколков и выпадающего лута (OPT-06)
+#[derive(Resource, Clone)]
+pub struct SharedVfxAssets {
+    pub debris_mesh: Handle<Mesh>,
+    pub fallback_loot_mesh: Handle<Mesh>,
+    pub wood_debris_mat: Handle<StandardMaterial>,
+    pub stone_debris_mat: Handle<StandardMaterial>,
+    pub foliage_debris_mat: Handle<StandardMaterial>,
+    pub occult_debris_mat: Handle<StandardMaterial>,
+    pub default_debris_mat: Handle<StandardMaterial>,
+    pub stone_loot_mat: Handle<StandardMaterial>,
+    pub wood_loot_mat: Handle<StandardMaterial>,
+    pub foliage_loot_mat: Handle<StandardMaterial>,
+    pub spores_loot_mat: Handle<StandardMaterial>,
+    pub clues_loot_mat: Handle<StandardMaterial>,
+}
+
+impl SharedVfxAssets {
+    pub fn new(meshes: &mut Assets<Mesh>, materials: &mut Assets<StandardMaterial>) -> Self {
+        let debris_mesh = meshes.add(Cuboid::new(0.22, 0.22, 0.22));
+        let fallback_loot_mesh = meshes.add(Cuboid::new(0.32, 0.32, 0.32));
+
+        let mut make_mat = |color: Color, roughness: f32, emissive: Option<Color>| {
+            materials.add(StandardMaterial {
+                base_color: color,
+                perceptual_roughness: roughness,
+                emissive: emissive.map(|e| e.into()).unwrap_or_default(),
+                ..default()
+            })
+        };
+
+        Self {
+            debris_mesh,
+            fallback_loot_mesh,
+            wood_debris_mat: make_mat(DestructibleMaterial::Wood.debris_color(), 0.9, None),
+            stone_debris_mat: make_mat(DestructibleMaterial::Stone.debris_color(), 0.9, None),
+            foliage_debris_mat: make_mat(DestructibleMaterial::Foliage.debris_color(), 0.9, None),
+            occult_debris_mat: make_mat(DestructibleMaterial::Occult.debris_color(), 0.9, None),
+            default_debris_mat: make_mat(Color::srgb(0.5, 0.5, 0.5), 0.9, None),
+            stone_loot_mat: make_mat(ResourceType::Stone.color(), 0.4, Some(ResourceType::Stone.color())),
+            wood_loot_mat: make_mat(ResourceType::Wood.color(), 0.4, Some(ResourceType::Wood.color())),
+            foliage_loot_mat: make_mat(ResourceType::Foliage.color(), 0.4, Some(ResourceType::Foliage.color())),
+            spores_loot_mat: make_mat(ResourceType::Fear.color(), 0.4, Some(ResourceType::Fear.color())),
+            clues_loot_mat: make_mat(ResourceType::Clues.color(), 0.4, Some(ResourceType::Clues.color())),
+        }
+    }
+
+    pub fn debris_material_for(&self, mat: DestructibleMaterial) -> Handle<StandardMaterial> {
+        match mat {
+            DestructibleMaterial::Wood => self.wood_debris_mat.clone(),
+            DestructibleMaterial::Stone => self.stone_debris_mat.clone(),
+            DestructibleMaterial::Foliage => self.foliage_debris_mat.clone(),
+            DestructibleMaterial::Occult => self.occult_debris_mat.clone(),
+        }
+    }
+
+    pub fn loot_material_for(&self, res: ResourceType) -> Handle<StandardMaterial> {
+        match res {
+            ResourceType::Stone | ResourceType::Soil => self.stone_loot_mat.clone(),
+            ResourceType::Wood => self.wood_loot_mat.clone(),
+            ResourceType::Foliage => self.foliage_loot_mat.clone(),
+            ResourceType::Fear => self.spores_loot_mat.clone(),
+            ResourceType::Clues => self.clues_loot_mat.clone(),
+        }
+    }
+}
+
 /// Инвентарь ресурсов Сыщика
 #[derive(Resource, Debug, Clone)]
 pub struct PlayerInventory {
@@ -122,6 +189,10 @@ impl PlayerInventory {
         true
     }
 }
+
+/// Маркер заражения флоры спорами/скверной Древних
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InfectedFlora(pub bool);
 
 /// Тип материала разрушаемого объекта (влияет на цвет обломков и прочность)
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -226,33 +297,50 @@ impl Destructible {
         }
     }
 
-    pub fn tree(colliders: Vec<ColliderId>) -> Self {
+    pub fn tree(infected: bool, colliders: Vec<ColliderId>) -> Self {
+        let drops = if infected {
+            vec![
+                (ResourceType::Wood, 3),
+                (ResourceType::Foliage, 3),
+                (ResourceType::Fear, 2),
+            ]
+        } else {
+            vec![
+                (ResourceType::Wood, 3),
+                (ResourceType::Foliage, 3),
+            ]
+        };
         Self {
-            title: "Вековой болотный дуб",
-            hp: 60.0,
-            max_hp: 60.0,
+            title: if infected { "Зараженное болотное дерево" } else { "Болотное дерево" },
+            hp: 100.0,
+            max_hp: 100.0,
             material: DestructibleMaterial::Wood,
-            drops: vec![
-                (ResourceType::Wood, 4),
-                (ResourceType::Foliage, 2),
-                (ResourceType::Soil, 1),
-            ],
+            drops,
             colliders,
             pick_radius: 1.6,
             pick_height: 7.5,
         }
     }
 
-    pub fn bush(colliders: Vec<ColliderId>) -> Self {
+    pub fn bush(infected: bool, colliders: Vec<ColliderId>) -> Self {
+        let drops = if infected {
+            vec![
+                (ResourceType::Foliage, 2),
+                (ResourceType::Wood, 1),
+                (ResourceType::Fear, 1),
+            ]
+        } else {
+            vec![
+                (ResourceType::Foliage, 2),
+                (ResourceType::Wood, 1),
+            ]
+        };
         Self {
-            title: "Болотный кустарник",
+            title: if infected { "Зараженный кустарник" } else { "Болотный кустарник" },
             hp: 30.0,
             max_hp: 30.0,
             material: DestructibleMaterial::Foliage,
-            drops: vec![
-                (ResourceType::Foliage, 3),
-                (ResourceType::Fear, 2),
-            ],
+            drops,
             colliders,
             pick_radius: 1.2,
             pick_height: 1.8,
@@ -450,6 +538,7 @@ pub fn apply_damage_to_entity(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     loot_models: Option<&ResourceModelAssets>,
+    vfx: Option<&SharedVfxAssets>,
     nav_world: &mut NavWorld,
     integrity_dirty: &mut StructuralIntegrityDirty,
     target_entity: Entity,
@@ -464,8 +553,10 @@ pub fn apply_damage_to_entity(
         commands,
         meshes,
         materials,
+        vfx,
         world_pos + Vec3::Y * 0.9,
         destructible.material.debris_color(),
+        Some(destructible.material),
         4,
     );
 
@@ -486,8 +577,10 @@ pub fn apply_damage_to_entity(
         commands,
         meshes,
         materials,
+        vfx,
         world_pos + Vec3::Y * 1.1,
         destructible.material.debris_color(),
+        Some(destructible.material),
         12,
     );
 
@@ -497,6 +590,7 @@ pub fn apply_damage_to_entity(
         meshes,
         materials,
         loot_models,
+        vfx,
         world_pos + Vec3::Y * 0.6,
         &destructible.drops,
     );
@@ -505,20 +599,34 @@ pub fn apply_damage_to_entity(
     true
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_debris_burst(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    vfx: Option<&SharedVfxAssets>,
     origin: Vec3,
     color: Color,
+    material_kind: Option<DestructibleMaterial>,
     count: usize,
 ) {
-    let cube_mesh = meshes.add(Cuboid::new(0.22, 0.22, 0.22));
-    let mat = materials.add(StandardMaterial {
-        base_color: color,
-        perceptual_roughness: 0.9,
-        ..default()
-    });
+    let (cube_mesh, mat) = if let Some(vfx) = vfx {
+        let mat = if let Some(kind) = material_kind {
+            vfx.debris_material_for(kind)
+        } else {
+            vfx.default_debris_mat.clone()
+        };
+        (vfx.debris_mesh.clone(), mat)
+    } else {
+        (
+            meshes.add(Cuboid::new(0.22, 0.22, 0.22)),
+            materials.add(StandardMaterial {
+                base_color: color,
+                perceptual_roughness: 0.9,
+                ..default()
+            }),
+        )
+    };
 
     for i in 0..count {
         let angle = (i as f32 / count as f32) * std::f32::consts::TAU + (i as f32 * 1.37);
@@ -546,53 +654,80 @@ pub fn spawn_loot_drops(
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
     loot_models: Option<&ResourceModelAssets>,
+    vfx: Option<&SharedVfxAssets>,
     origin: Vec3,
     drops: &[(ResourceType, u32)],
 ) {
-    let fallback_mesh = meshes.add(Cuboid::new(0.32, 0.32, 0.32));
-    let mut idx = 0_usize;
+    let fallback_mesh = if let Some(vfx) = vfx {
+        vfx.fallback_loot_mesh.clone()
+    } else {
+        meshes.add(Cuboid::new(0.32, 0.32, 0.32))
+    };
+    let mut drop_idx = 0_usize;
 
-    for &(res_type, amount) in drops {
-        if amount == 0 {
+    for &(res_type, total_amount) in drops {
+        if total_amount == 0 {
             continue;
         }
 
-        let angle = idx as f32 * 2.1 + 0.5;
-        let vel = Vec3::new(angle.cos() * 1.8, 3.8, angle.sin() * 1.8);
+        // Спавним каждый кусочек как отдельную физическую модель,
+        // чтобы они разлетались веером и красиво лежали на земле
+        let spawn_count = total_amount.min(6);
+        let per_drop = total_amount / spawn_count;
+        let mut remainder = total_amount % spawn_count;
 
-        let mut entity_cmds = commands.spawn((
-            DroppedLoot {
-                resource: res_type,
-                amount,
-                velocity: vel,
-                age: 0.0,
-            },
-            Transform::from_translation(origin).with_scale(Vec3::splat(1.15)),
-        ));
+        for _ in 0..spawn_count {
+            let count = per_drop + if remainder > 0 { remainder -= 1; 1 } else { 0 };
+            if count == 0 {
+                continue;
+            }
 
-        if let Some(models) = loot_models {
-            let model_handle = match res_type {
-                ResourceType::Stone | ResourceType::Soil => models.stone.clone(),
-                ResourceType::Wood => models.wood.clone(),
-                ResourceType::Foliage => models.foliage.clone(),
-                ResourceType::Fear => models.spores.clone(),
-                ResourceType::Clues => models.wood.clone(),
-            };
-            entity_cmds.insert(WorldAssetRoot(model_handle));
-        } else {
-            let mat = materials.add(StandardMaterial {
-                base_color: res_type.color(),
-                emissive: res_type.color().into(),
-                perceptual_roughness: 0.4,
-                ..default()
-            });
-            entity_cmds.insert((
-                Mesh3d(fallback_mesh.clone()),
-                MeshMaterial3d(mat),
+            let angle = (drop_idx as f32) * 1.35 + 0.45;
+            let speed = 1.4 + (drop_idx % 3) as f32 * 0.45;
+            let vel = Vec3::new(
+                angle.cos() * speed,
+                3.4 + (drop_idx % 2) as f32 * 0.5,
+                angle.sin() * speed,
+            );
+
+            let mut entity_cmds = commands.spawn((
+                DroppedLoot {
+                    resource: res_type,
+                    amount: count,
+                    velocity: vel,
+                    age: 0.0,
+                },
+                Transform::from_translation(origin).with_scale(Vec3::splat(1.15)),
             ));
-        }
 
-        idx += 1;
+            if let Some(models) = loot_models {
+                let model_handle = match res_type {
+                    ResourceType::Stone | ResourceType::Soil => models.stone.clone(),
+                    ResourceType::Wood => models.wood.clone(),
+                    ResourceType::Foliage => models.foliage.clone(),
+                    ResourceType::Fear => models.spores.clone(),
+                    ResourceType::Clues => models.wood.clone(),
+                };
+                entity_cmds.insert(WorldAssetRoot(model_handle));
+            } else {
+                let mat = if let Some(vfx) = vfx {
+                    vfx.loot_material_for(res_type)
+                } else {
+                    materials.add(StandardMaterial {
+                        base_color: res_type.color(),
+                        emissive: res_type.color().into(),
+                        perceptual_roughness: 0.4,
+                        ..default()
+                    })
+                };
+                entity_cmds.insert((
+                    Mesh3d(fallback_mesh.clone()),
+                    MeshMaterial3d(mat),
+                ));
+            }
+
+            drop_idx += 1;
+        }
     }
 }
 
@@ -888,6 +1023,47 @@ mod tests {
         assert!(
             nav.is_walkable_pos_on_floor(Vec2::new(0.0, 10.0), 0, 0.36),
             "После сноса стены через пролом можно свободно пройти"
+        );
+    }
+
+    #[test]
+    fn test_tree_and_bush_destruction_drops_and_duration() {
+        // Обычное дерево: 100 HP (10 ударов * 0.5с = 5.0с рубки), дроп 3 дерева и 3 листвы
+        let tree_normal = Destructible::tree(false, vec![]);
+        assert_eq!(tree_normal.hp, 100.0);
+        assert_eq!(
+            tree_normal.drops,
+            vec![(ResourceType::Wood, 3), (ResourceType::Foliage, 3)]
+        );
+
+        // Зараженное дерево: +2 споры
+        let tree_infected = Destructible::tree(true, vec![]);
+        assert_eq!(
+            tree_infected.drops,
+            vec![
+                (ResourceType::Wood, 3),
+                (ResourceType::Foliage, 3),
+                (ResourceType::Fear, 2)
+            ]
+        );
+
+        // Обычный кустарник: дроп 2 листвы и 1 дерево
+        let bush_normal = Destructible::bush(false, vec![]);
+        assert_eq!(bush_normal.hp, 30.0);
+        assert_eq!(
+            bush_normal.drops,
+            vec![(ResourceType::Foliage, 2), (ResourceType::Wood, 1)]
+        );
+
+        // Зараженный кустарник: +1 спора
+        let bush_infected = Destructible::bush(true, vec![]);
+        assert_eq!(
+            bush_infected.drops,
+            vec![
+                (ResourceType::Foliage, 2),
+                (ResourceType::Wood, 1),
+                (ResourceType::Fear, 1)
+            ]
         );
     }
 }

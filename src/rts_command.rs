@@ -4,8 +4,9 @@ use crate::building::{
 };
 use crate::camera::CameraController;
 use crate::destruction::{
-    apply_damage_to_entity, spawn_debris_burst, Destructible, PlayerInventory, ResourceModelAssets,
-    ResourceType, StructuralIntegrityDirty, StructuralKind, StructuralPiece, TentacleCrop,
+    apply_damage_to_entity, spawn_debris_burst, Destructible, DestructibleMaterial,
+    PlayerInventory, ResourceModelAssets, ResourceType, SharedVfxAssets,
+    StructuralIntegrityDirty, StructuralKind, StructuralPiece, TentacleCrop,
 };
 use crate::navigation::NavWorld;
 use crate::player::Player;
@@ -428,7 +429,7 @@ fn spawn_rts_context_menu(
                         target: target_entity,
                         target_pos,
                         floor: obj_floor,
-                        swing_timer: 0.15,
+                        swing_timer: 0.50,
                     }),
                 );
 
@@ -739,6 +740,7 @@ pub fn execute_rts_order_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     kit_assets: Option<Res<BuildableKitAssets>>,
     loot_models: Option<Res<ResourceModelAssets>>,
+    vfx: Option<Res<SharedVfxAssets>>,
     building_state: Res<ActiveBuildingState>,
     mut player_query: Query<(&mut Player, &mut Transform)>,
     mut destructibles_query: Query<(&GlobalTransform, &mut Destructible)>,
@@ -797,27 +799,30 @@ pub fn execute_rts_order_system(
 
                 *swing_timer -= dt;
                 if *swing_timer <= 0.0 {
-                    *swing_timer = 0.42;
+                    *swing_timer = 0.50; // Каждые 0.5с — взмах топором
                     let destroyed = apply_damage_to_entity(
                         &mut commands,
                         &mut meshes,
                         &mut materials,
                         loot_models.as_deref(),
+                        vfx.as_deref(),
                         &mut nav_world,
                         &mut integrity_dirty,
                         *target,
                         *target_pos,
                         &mut dest,
-                        35.0,
+                        10.0, // 10 урона за удар: 10 ударов * 0.5с = ровно 5.0 секунд на дерево (100 HP)!
                     );
                     if destroyed {
                         active_order.status_message =
-                            format!("«{}» разрушено! Ресурсы собраны.", dest.title);
+                            format!("«{}» срублено! Ресурсы выпали на землю.", dest.title);
                         return;
                     } else {
+                        let remaining_secs = (dest.hp / 10.0) * 0.5;
+                        let progress_pct = ((1.0 - dest.hp / dest.max_hp) * 100.0).clamp(0.0, 100.0);
                         active_order.status_message = format!(
-                            "Рубим «{}» (HP: {:.0}/{:.0})...",
-                            dest.title, dest.hp, dest.max_hp
+                            "Рубим «{}» [{:.0}%] — осталось {:.1}с",
+                            dest.title, progress_pct, remaining_secs
                         );
                     }
                 }
@@ -905,8 +910,10 @@ pub fn execute_rts_order_system(
                         &mut commands,
                         &mut meshes,
                         &mut materials,
+                        vfx.as_deref(),
                         marker_pos,
                         Color::srgb(0.32, 0.24, 0.16),
+                        Some(DestructibleMaterial::Wood),
                         8,
                     );
                     return;
@@ -1106,14 +1113,31 @@ pub fn update_inventory_hud_system(
     terrain: Res<WorldTerrain>,
     player_query: Query<&Transform, With<Player>>,
     mut hud_query: Query<&mut Text, With<InventoryHudText>>,
+    mut last_biome: Local<Option<crate::terrain::Biome>>,
+    mut last_chunk_count: Local<usize>,
 ) {
+    let current_biome = player_query
+        .single()
+        .map(|tf| terrain.sample_biome(tf.translation.x, tf.translation.z))
+        .ok();
+
+    if !inventory.is_changed()
+        && !active_order.is_changed()
+        && *last_biome == current_biome
+        && *last_chunk_count == terrain.spawned_chunks.len()
+    {
+        return;
+    }
+
+    *last_biome = current_biome;
+    *last_chunk_count = terrain.spawned_chunks.len();
+
     let Ok(mut text) = hud_query.single_mut() else {
         return;
     };
 
-    let biome_name = player_query
-        .single()
-        .map(|tf| terrain.sample_biome(tf.translation.x, tf.translation.z).display_name())
+    let biome_name = current_biome
+        .map(|b| b.display_name())
         .unwrap_or("Аркхэм");
 
     let status = if active_order.status_message.is_empty() {
@@ -1125,7 +1149,7 @@ pub fn update_inventory_hud_system(
     **text = format!(
         "Биом: {} ({} чанков) | Дерево: {} | Камень: {} | Листва: {} | Споры: {} | Земля: {} | Зацепки: {}\n{}",
         biome_name,
-        terrain.spawned_chunks.len(),
+        *last_chunk_count,
         inventory.wood,
         inventory.stone,
         inventory.foliage,

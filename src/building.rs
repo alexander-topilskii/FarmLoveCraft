@@ -315,6 +315,10 @@ pub fn update_building_floor_visibility_system(
         ),
     >,
 ) {
+    if !state.is_changed() {
+        return;
+    }
+
     // 1. Крыши зданий: скрываем, когда персонаж внутри этого здания
     for (roof, mut vis) in &mut roofs {
         let is_inside = state.active_building == Some(roof.building_id);

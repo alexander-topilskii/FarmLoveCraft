@@ -611,21 +611,25 @@ fn populate_wild_chunk(
                     let tree_idx = ((r2 * 100.0) as usize) % (if assets.trees.is_empty() { 1 } else { assets.trees.len() });
                     let selected_tree = assets.trees.get(tree_idx).unwrap_or(&assets.tree).clone();
                     let scale = 0.85 + r1 * 0.35;
+                    let is_infected = r1 > 0.60;
                     let col_id = nav_world.add_box(wx, wz, 0.75 * scale, 0.75 * scale);
                     commands.spawn((
                         WorldAssetRoot(selected_tree),
                         Transform::from_xyz(wx, wy, wz)
                             .with_rotation(Quat::from_rotation_y(yaw))
                             .with_scale(Vec3::splat(scale)),
-                        crate::destruction::Destructible::tree(vec![col_id]),
+                        crate::destruction::Destructible::tree(is_infected, vec![col_id]),
+                        crate::destruction::InfectedFlora(is_infected),
                     ));
                 } else if r3 < 0.68 {
+                    let is_infected = r2 > 0.55;
                     let col_id = nav_world.add_box(wx, wz, 0.80, 0.80);
                     commands.spawn((
                         WorldAssetRoot(assets.bush.clone()),
                         Transform::from_xyz(wx, wy, wz)
                             .with_rotation(Quat::from_rotation_y(yaw)),
-                        crate::destruction::Destructible::bush(vec![col_id]),
+                        crate::destruction::Destructible::bush(is_infected, vec![col_id]),
+                        crate::destruction::InfectedFlora(is_infected),
                     ));
                 } else if slot == 0 && r1 > 0.88 {
                     let col_id = nav_world.add_box(wx, wz, 1.35, 1.35);

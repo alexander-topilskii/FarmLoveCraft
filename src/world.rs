@@ -7,8 +7,8 @@ use crate::building::{
 };
 use crate::camera::CameraController;
 use crate::destruction::{
-    Destructible, ResourceModelAssets, ResourceType, StructuralIntegrityDirty, StructuralKind,
-    StructuralPiece,
+    Destructible, InfectedFlora, ResourceModelAssets, ResourceType, SharedVfxAssets,
+    StructuralIntegrityDirty, StructuralKind, StructuralPiece,
 };
 use crate::navigation::{NavWorld, StairLink};
 use crate::player::{on_character_scene_ready, CharacterAnimations, Player};
@@ -62,6 +62,9 @@ pub fn setup_world(
         idle_node,
         walk_node,
     });
+
+    let shared_vfx = SharedVfxAssets::new(&mut meshes, &mut materials);
+    commands.insert_resource(shared_vfx);
 
     // 2. Генерируемый чанковый рельеф мира (по принципу Valheim — с поддержкой копки и насыпи)
     let terrain_mat = materials.add(StandardMaterial {
@@ -685,49 +688,51 @@ pub fn setup_world(
     }
 
     // Болотные деревья и коряги (различные варианты по референсам стиля)
-    let tree_placements: [(Handle<WorldAsset>, f32, f32, f32, f32); 11] = [
-        (tree_gnarled_scene.clone(), -16.5, 4.5, 0.0, 1.0),
-        (tree_willow_scene.clone(), -25.5, 19.0, 1.2, 1.05),
-        (tree_pine_scene.clone(), 24.5, 18.5, 1.9, 1.0),
-        (tree_snag_scene.clone(), 28.5, 3.5, 3.1, 1.0),
-        (tree_log_scene.clone(), 26.0, -8.5, 0.5, 1.0),
-        (tree_scene.clone(), -16.5, -14.5, 2.1, 1.05),
-        (tree_corrupted_scene.clone(), 15.5, -14.0, 1.4, 1.0),
-        (tree_gnarled_scene.clone(), -34.5, 35.0, 0.8, 1.1),
-        (tree_pine_scene.clone(), 34.5, 35.0, 2.4, 1.05),
-        (tree_willow_scene.clone(), -23.5, 55.0, 1.5, 1.05),
-        (tree_snag_scene.clone(), 23.5, 55.0, 0.4, 1.05),
+    let tree_placements: [(Handle<WorldAsset>, f32, f32, f32, f32, bool); 11] = [
+        (tree_gnarled_scene.clone(), -16.5, 4.5, 0.0, 1.0, false),
+        (tree_willow_scene.clone(), -25.5, 19.0, 1.2, 1.05, false),
+        (tree_pine_scene.clone(), 24.5, 18.5, 1.9, 1.0, false),
+        (tree_snag_scene.clone(), 28.5, 3.5, 3.1, 1.0, false),
+        (tree_log_scene.clone(), 26.0, -8.5, 0.5, 1.0, false),
+        (tree_scene.clone(), -16.5, -14.5, 2.1, 1.05, false),
+        (tree_corrupted_scene.clone(), 15.5, -14.0, 1.4, 1.0, true), // Искаженное древо со спорами!
+        (tree_gnarled_scene.clone(), -34.5, 35.0, 0.8, 1.1, false),
+        (tree_pine_scene.clone(), 34.5, 35.0, 2.4, 1.05, false),
+        (tree_willow_scene.clone(), -23.5, 55.0, 1.5, 1.05, true), // Болотная ива со спорами!
+        (tree_snag_scene.clone(), 23.5, 55.0, 0.4, 1.05, true),   // Расколотый пень со спорами!
     ];
-    for (handle, tx, tz, tyaw, tscale) in tree_placements {
+    for (handle, tx, tz, tyaw, tscale, infected) in tree_placements {
         let col = nav_world.add_box(tx, tz, 0.75 * tscale, 0.75 * tscale);
         commands.spawn((
             WorldAssetRoot(handle),
             Transform::from_xyz(tx, 0.0, tz)
                 .with_rotation(Quat::from_rotation_y(tyaw))
                 .with_scale(Vec3::splat(tscale)),
-            Destructible::tree(vec![col]),
+            Destructible::tree(infected, vec![col]),
+            InfectedFlora(infected),
         ));
     }
 
     // Болотные кусты
-    let bush_positions = [
-        (-6.2, 12.2, 0.3),
-        (6.2, 12.2, 1.7),
-        (-6.5, 19.5, 2.2),
-        (6.5, 19.5, 0.9),
-        (14.5, 4.2, 0.4),
-        (26.5, -3.5, 1.5),
-        (-8.5, 30.8, 1.1),
-        (8.5, 30.8, 2.5),
-        (-16.5, 39.5, 0.7),
-        (16.5, 39.5, 1.9),
+    let bush_positions: [(f32, f32, f32, bool); 10] = [
+        (-6.2, 12.2, 0.3, false),
+        (6.2, 12.2, 1.7, false),
+        (-6.5, 19.5, 2.2, true),  // У канала щупалец — заражен спорами!
+        (6.5, 19.5, 0.9, true),   // У канала щупалец — заражен спорами!
+        (14.5, 4.2, 0.4, false),
+        (26.5, -3.5, 1.5, true),  // Болотная окраина — заражен спорами!
+        (-8.5, 30.8, 1.1, false),
+        (8.5, 30.8, 2.5, false),
+        (-16.5, 39.5, 0.7, false),
+        (16.5, 39.5, 1.9, false),
     ];
-    for (bx, bz, byaw) in bush_positions {
+    for (bx, bz, byaw, infected) in bush_positions {
         let col = nav_world.add_box(bx, bz, 0.82, 0.82);
         commands.spawn((
             WorldAssetRoot(bush_scene.clone()),
             Transform::from_xyz(bx, 0.0, bz).with_rotation(Quat::from_rotation_y(byaw)),
-            Destructible::bush(vec![col]),
+            Destructible::bush(infected, vec![col]),
+            InfectedFlora(infected),
         ));
     }
 
