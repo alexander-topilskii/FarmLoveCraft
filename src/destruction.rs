@@ -754,71 +754,74 @@ pub fn recompute_structural_integrity_system(
         return;
     }
 
-    // 1. Определяем элементы, опирающиеся непосредственно на твердый грунт (фундамент)
-    for (_, piece) in &mut nodes {
+    // 1. Помещаем блоки в 3D-сетку и определяем элементы, опирающиеся на грунт (OPT-04)
+    let mut grid: std::collections::HashMap<(i32, i32, i32), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (idx, (_, piece)) in nodes.iter().enumerate() {
+        let cx = (piece.world_pos.x / 4.6).floor() as i32;
+        let cy = (piece.world_pos.y / 4.6).floor() as i32;
+        let cz = (piece.world_pos.z / 4.6).floor() as i32;
+        grid.entry((cx, cy, cz)).or_default().push(idx);
+    }
+
+    let mut queue = std::collections::BinaryHeap::new();
+    for (idx, (_, piece)) in nodes.iter_mut().enumerate() {
         let ground_y = terrain.sample_height(piece.world_pos.x, piece.world_pos.z);
         let dist_to_ground = (piece.world_pos.y - ground_y).abs();
         if piece.floor_index == 0 && dist_to_ground <= 0.95 {
             piece.current_support = piece.max_support;
+            queue.push(((piece.max_support * 100.0) as u32, idx));
         } else {
             piece.current_support = 0.0;
         }
     }
 
-    // 2. Волновая передача опоры от фундамента вверх и в стороны (10 итераций релаксации)
-    let len = nodes.len();
-    for _pass in 0..10 {
-        let mut changed = false;
-        for i in 0..len {
-            let target = nodes[i].1.clone();
-            if target.current_support >= target.max_support - 0.01 {
-                continue;
-            }
-
-            let mut best_support = target.current_support;
-            for j in 0..len {
-                if i == j {
-                    continue;
-                }
-                let src = &nodes[j].1;
-                if src.current_support <= 1.0 {
-                    continue;
-                }
-
-                let dxz = Vec2::new(
-                    target.world_pos.x - src.world_pos.x,
-                    target.world_pos.z - src.world_pos.z,
-                )
-                .length();
-                let dy = target.world_pos.y - src.world_pos.y;
-
-                // Случай А: Опора снизу вверх (нижний этаж / колонна / стена поддерживает верхний ярус)
-                if dy >= 0.5 && dy <= 5.2 && dxz <= 4.6 {
-                    let transferred = (src.current_support
-                        * (1.0 - target.vertical_loss))
-                        .min(target.max_support);
-                    if transferred > best_support {
-                        best_support = transferred;
-                    }
-                }
-                // Случай Б: Горизонтальная связь соседних блоков на одном ярусе
-                else if dy.abs() < 1.2 && dxz <= 4.6 {
-                    let transferred = (src.current_support
-                        * (1.0 - target.horizontal_loss))
-                        .min(target.max_support);
-                    if transferred > best_support {
-                        best_support = transferred;
-                    }
-                }
-            }
-
-            if best_support > nodes[i].1.current_support + 0.1 {
-                nodes[i].1.current_support = best_support;
-                changed = true;
-            }
+    // 2. Локальный волновой алгоритм распространения опоры (Max-Heap Dijkstra propagation)
+    while let Some((supp_int, src_idx)) = queue.pop() {
+        let src_supp = supp_int as f32 / 100.0;
+        if src_supp < nodes[src_idx].1.current_support - 0.05 {
+            continue;
         }
-        if !changed {
-            break;
+
+        let src_pos = nodes[src_idx].1.world_pos;
+        let cx = (src_pos.x / 4.6).floor() as i32;
+        let cy = (src_pos.y / 4.6).floor() as i32;
+        let cz = (src_pos.z / 4.6).floor() as i32;
+
+        for nx in (cx - 1)..=(cx + 1) {
+            for ny in (cy - 1)..=(cy + 2) {
+                for nz in (cz - 1)..=(cz + 1) {
+                    if let Some(bucket) = grid.get(&(nx, ny, nz)) {
+                        for &target_idx in bucket {
+                            if target_idx == src_idx {
+                                continue;
+                            }
+                            let target = &nodes[target_idx].1;
+                            let dxz = Vec2::new(
+                                target.world_pos.x - src_pos.x,
+                                target.world_pos.z - src_pos.z,
+                            )
+                            .length();
+                            let dy = target.world_pos.y - src_pos.y;
+
+                            let transferred = if dy >= 0.5 && dy <= 5.2 && dxz <= 4.6 {
+                                (nodes[src_idx].1.current_support * (1.0 - target.vertical_loss))
+                                    .min(target.max_support)
+                            } else if dy.abs() < 1.2 && dxz <= 4.6 {
+                                (nodes[src_idx].1.current_support * (1.0 - target.horizontal_loss))
+                                    .min(target.max_support)
+                            } else {
+                                0.0
+                            };
+
+                            if transferred > nodes[target_idx].1.current_support + 0.1 {
+                                nodes[target_idx].1.current_support = transferred;
+                                queue.push(((transferred * 100.0) as u32, target_idx));
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -845,6 +848,7 @@ pub fn update_destruction_effects_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     loot_models: Option<Res<ResourceModelAssets>>,
+    vfx: Option<Res<SharedVfxAssets>>,
     mut nav_world: ResMut<NavWorld>,
     mut integrity_dirty: ResMut<StructuralIntegrityDirty>,
     mut inventory: ResMut<PlayerInventory>,
@@ -908,6 +912,7 @@ pub fn update_destruction_effects_system(
                     &mut meshes,
                     &mut materials,
                     loot_models.as_deref(),
+                    vfx.as_deref(),
                     &mut nav_world,
                     &mut dummy_dirty,
                     entity,

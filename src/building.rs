@@ -401,17 +401,45 @@ pub fn update_building_floor_visibility_system(
     }
 }
 
+/// Кэш состояния прозрачности стены и дочерних Mesh-сущностей (OPT-02)
+#[derive(Component, Default, Debug)]
+pub struct CutawayStateCache {
+    pub is_transparent: bool,
+    pub mesh_entities: Vec<Entity>,
+    pub initialized: bool,
+}
+
 /// Вспомогательная функция: мгновенно переключает все дочерние меши объекта между непрозрачным и полупрозрачным материалом
 fn apply_entity_transparency(
     root_entity: Entity,
     transparent: bool,
+    cutaway_cache: &mut CutawayStateCache,
     children_query: &Query<&Children>,
     mesh_materials: &mut Query<(&mut MeshMaterial3d<StandardMaterial>, Option<&OriginalMaterial>)>,
     materials: &mut Assets<StandardMaterial>,
     cache: &mut CutawayMaterialCache,
     commands: &mut Commands,
 ) {
-    for descendant in children_query.iter_descendants(root_entity) {
+    if cutaway_cache.initialized && cutaway_cache.is_transparent == transparent {
+        return;
+    }
+
+    if !cutaway_cache.initialized {
+        let mut meshes = Vec::new();
+        for descendant in children_query.iter_descendants(root_entity) {
+            if mesh_materials.contains(descendant) {
+                meshes.push(descendant);
+            }
+        }
+        if !meshes.is_empty() {
+            cutaway_cache.mesh_entities = meshes;
+            cutaway_cache.initialized = true;
+        }
+    }
+
+    cutaway_cache.is_transparent = transparent;
+
+    for &descendant in &cutaway_cache.mesh_entities {
         let Ok((mut mat_comp, orig_opt)) = mesh_materials.get_mut(descendant) else {
             continue;
         };
@@ -462,6 +490,7 @@ pub fn update_wall_cutaway_system(
     walls: Query<(Entity, &CutawayWall)>,
     pillars: Query<(Entity, &CutawayPillar)>,
     attached_props: Query<(Entity, &CutawayAttachedProp)>,
+    mut state_caches: Query<&mut CutawayStateCache>,
     children_query: Query<&Children>,
     mut mesh_materials: Query<(&mut MeshMaterial3d<StandardMaterial>, Option<&OriginalMaterial>)>,
 ) {
@@ -498,15 +527,31 @@ pub fn update_wall_cutaway_system(
             false
         };
 
-        apply_entity_transparency(
-            entity,
-            should_cut,
-            &children_query,
-            &mut mesh_materials,
-            materials,
-            &mut cache,
-            &mut commands,
-        );
+        if let Ok(mut cut_cache) = state_caches.get_mut(entity) {
+            apply_entity_transparency(
+                entity,
+                should_cut,
+                &mut cut_cache,
+                &children_query,
+                &mut mesh_materials,
+                materials,
+                &mut cache,
+                &mut commands,
+            );
+        } else {
+            let mut cut_cache = CutawayStateCache::default();
+            apply_entity_transparency(
+                entity,
+                should_cut,
+                &mut cut_cache,
+                &children_query,
+                &mut mesh_materials,
+                materials,
+                &mut cache,
+                &mut commands,
+            );
+            commands.entity(entity).insert(cut_cache);
+        }
     }
 
     // 2. Переключаем прозрачность колонн
@@ -530,15 +575,31 @@ pub fn update_wall_cutaway_system(
             false
         };
 
-        apply_entity_transparency(
-            entity,
-            should_cut,
-            &children_query,
-            &mut mesh_materials,
-            materials,
-            &mut cache,
-            &mut commands,
-        );
+        if let Ok(mut cut_cache) = state_caches.get_mut(entity) {
+            apply_entity_transparency(
+                entity,
+                should_cut,
+                &mut cut_cache,
+                &children_query,
+                &mut mesh_materials,
+                materials,
+                &mut cache,
+                &mut commands,
+            );
+        } else {
+            let mut cut_cache = CutawayStateCache::default();
+            apply_entity_transparency(
+                entity,
+                should_cut,
+                &mut cut_cache,
+                &children_query,
+                &mut mesh_materials,
+                materials,
+                &mut cache,
+                &mut commands,
+            );
+            commands.entity(entity).insert(cut_cache);
+        }
     }
 
     // 3. Переключаем прозрачность высокой пристенной мебели у прозрачных стен
@@ -548,15 +609,31 @@ pub fn update_wall_cutaway_system(
 
         let should_cut = is_active_floor && prop.wall_normal.dot(to_camera_xz) > 0.22;
 
-        apply_entity_transparency(
-            entity,
-            should_cut,
-            &children_query,
-            &mut mesh_materials,
-            materials,
-            &mut cache,
-            &mut commands,
-        );
+        if let Ok(mut cut_cache) = state_caches.get_mut(entity) {
+            apply_entity_transparency(
+                entity,
+                should_cut,
+                &mut cut_cache,
+                &children_query,
+                &mut mesh_materials,
+                materials,
+                &mut cache,
+                &mut commands,
+            );
+        } else {
+            let mut cut_cache = CutawayStateCache::default();
+            apply_entity_transparency(
+                entity,
+                should_cut,
+                &mut cut_cache,
+                &children_query,
+                &mut mesh_materials,
+                materials,
+                &mut cache,
+                &mut commands,
+            );
+            commands.entity(entity).insert(cut_cache);
+        }
     }
 }
 

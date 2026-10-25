@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use bevy::asset::RenderAssetUsages;
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
+use crate::destruction::Destructible;
 use crate::navigation::NavWorld;
 use crate::player::Player;
 
@@ -14,6 +15,12 @@ pub const CHUNK_CELLS: i32 = 8;
 pub const MAX_TERRAFORM_DELTA: f32 = 3.5;
 /// Радиус активной подгрузки чанков вокруг Сыщика
 pub const CHUNK_STREAM_RADIUS: i32 = 5;
+/// Радиус выгрузки далеких чанков (гистерезис в 2 чанка предотвращает частые перезагрузки)
+pub const CHUNK_UNLOAD_RADIUS: i32 = CHUNK_STREAM_RADIUS + 2;
+
+/// Маркер привязки процедурного объекта к чанку для выгрузки (OPT-03)
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ChunkMember(pub ChunkCoord);
 
 /// Координаты чанка в мировом пространстве
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -510,6 +517,7 @@ pub fn stream_terrain_chunks_system(
     mut materials: ResMut<Assets<StandardMaterial>>,
     biome_assets: Option<Res<ProceduralBiomeAssets>>,
     player_query: Query<&Transform, With<Player>>,
+    mut wild_objects: Query<(Entity, &ChunkMember, Option<&Destructible>)>,
 ) {
     let Ok(player_tf) = player_query.single() else {
         return;
@@ -530,7 +538,43 @@ pub fn stream_terrain_chunks_system(
     let center_chunk =
         ChunkCoord::from_world(Vec2::new(player_tf.translation.x, player_tf.translation.z));
 
-    // Ограничиваем количество создаваемых за один кадр чанков для плавного FPS
+    // 1. Выгрузка далеких чанков (Chunk Unloading с гистерезисом, OPT-03)
+    let mut to_unload = Vec::new();
+    for (&coord, &entity) in &terrain.spawned_chunks {
+        // Стартовый замок/город (в радиусе 2 чанков) держим всегда загруженным
+        if coord.cx.abs() <= 2 && coord.cz.abs() <= 2 {
+            continue;
+        }
+
+        let dist_x = (coord.cx - center_chunk.cx).abs();
+        let dist_z = (coord.cz - center_chunk.cz).abs();
+        if dist_x > CHUNK_UNLOAD_RADIUS || dist_z > CHUNK_UNLOAD_RADIUS {
+            to_unload.push((coord, entity));
+        }
+    }
+
+    for (coord, entity) in to_unload {
+        terrain.spawned_chunks.remove(&coord);
+        terrain.populated_chunks.remove(&coord);
+        commands.entity(entity).despawn();
+    }
+
+    // Выгрузка процедурных объектов далеких чанков
+    for (obj_entity, member, dest_opt) in &mut wild_objects {
+        if member.0.cx.abs() <= 2 && member.0.cz.abs() <= 2 {
+            continue;
+        }
+        let dist_x = (member.0.cx - center_chunk.cx).abs();
+        let dist_z = (member.0.cz - center_chunk.cz).abs();
+        if dist_x > CHUNK_UNLOAD_RADIUS || dist_z > CHUNK_UNLOAD_RADIUS {
+            if let Some(dest) = dest_opt {
+                nav_world.remove_colliders(&dest.colliders);
+            }
+            commands.entity(obj_entity).despawn();
+        }
+    }
+
+    // 2. Подгрузка новых чанков в радиусе стриминга
     let mut spawned_this_frame = 0;
 
     for dz in -CHUNK_STREAM_RADIUS..=CHUNK_STREAM_RADIUS {
@@ -620,6 +664,7 @@ fn populate_wild_chunk(
                             .with_scale(Vec3::splat(scale)),
                         crate::destruction::Destructible::tree(is_infected, vec![col_id]),
                         crate::destruction::InfectedFlora(is_infected),
+                        ChunkMember(coord),
                     ));
                 } else if r3 < 0.68 {
                     let is_infected = r2 > 0.55;
@@ -630,6 +675,7 @@ fn populate_wild_chunk(
                             .with_rotation(Quat::from_rotation_y(yaw)),
                         crate::destruction::Destructible::bush(is_infected, vec![col_id]),
                         crate::destruction::InfectedFlora(is_infected),
+                        ChunkMember(coord),
                     ));
                 } else if slot == 0 && r1 > 0.88 {
                     let col_id = nav_world.add_box(wx, wz, 1.35, 1.35);
@@ -641,6 +687,7 @@ fn populate_wild_chunk(
                             "Древний колодец Бездны",
                             vec![col_id],
                         ),
+                        ChunkMember(coord),
                     ));
                 }
             }
@@ -655,6 +702,7 @@ fn populate_wild_chunk(
                             "Рунический монолит",
                             vec![col_id],
                         ),
+                        ChunkMember(coord),
                     ));
                 } else if slot == 0 && r1 > 0.78 {
                     let col_id = nav_world.add_box(wx, wz, 2.50, 2.50);
@@ -666,6 +714,7 @@ fn populate_wild_chunk(
                             "Циклопическое святилище",
                             vec![col_id],
                         ),
+                        ChunkMember(coord),
                     ));
                 }
             }

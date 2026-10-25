@@ -15,7 +15,7 @@ use building::{
     update_building_hud_system, update_wall_cutaway_system, ActiveBuildingState, BuildingRegistry,
     CutawayMaterialCache,
 };
-use camera::camera_controller_system;
+use camera::{camera_controller_system, cull_distant_lights_system};
 use destruction::{
     recompute_structural_integrity_system, update_destruction_effects_system, PlayerInventory,
     StructuralIntegrityDirty,
@@ -28,6 +28,15 @@ use rts_command::{
 };
 use terrain::{rebuild_dirty_chunks_system, stream_terrain_chunks_system, WorldTerrain};
 use world::setup_world;
+
+/// Наборы систем для многопоточного выполнения в кадре (OPT-09)
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum GameSystemSet {
+    Input,
+    Simulation,
+    WorldSync,
+    Presentation,
+}
 
 fn main() {
     let mut app = App::new();
@@ -60,26 +69,55 @@ fn main() {
         .insert_resource(ActiveBuildingState::default())
         .insert_resource(CutawayMaterialCache::default())
         .add_systems(Startup, setup_world)
+        .configure_sets(
+            Update,
+            (
+                GameSystemSet::Input,
+                GameSystemSet::Simulation,
+                GameSystemSet::WorldSync,
+                GameSystemSet::Presentation,
+            )
+                .chain(),
+        )
         .add_systems(
             Update,
             (
                 rts_right_click_menu_system,
                 rts_menu_interaction_system,
                 player_input_system,
+            )
+                .in_set(GameSystemSet::Input),
+        )
+        .add_systems(
+            Update,
+            (
                 execute_rts_order_system,
                 player_movement_system,
                 stream_terrain_chunks_system,
-                rebuild_dirty_chunks_system,
                 recompute_structural_integrity_system,
+            )
+                .in_set(GameSystemSet::Simulation),
+        )
+        .add_systems(
+            Update,
+            (
+                rebuild_dirty_chunks_system,
                 update_destruction_effects_system,
                 update_active_building_system,
                 update_building_floor_visibility_system,
                 update_wall_cutaway_system,
+            )
+                .in_set(GameSystemSet::WorldSync),
+        )
+        .add_systems(
+            Update,
+            (
+                camera_controller_system,
                 update_building_hud_system,
                 update_inventory_hud_system,
-                camera_controller_system,
+                cull_distant_lights_system,
             )
-                .chain(),
+                .in_set(GameSystemSet::Presentation),
         )
         .run();
 }
@@ -91,25 +129,50 @@ mod tests {
     #[test]
     fn test_ecs_systems_have_no_query_conflicts() {
         let mut schedule = Schedule::new(Update);
+        schedule.configure_sets(
+            (
+                GameSystemSet::Input,
+                GameSystemSet::Simulation,
+                GameSystemSet::WorldSync,
+                GameSystemSet::Presentation,
+            )
+                .chain(),
+        );
         schedule.add_systems(
             (
                 rts_right_click_menu_system,
                 rts_menu_interaction_system,
                 player_input_system,
+            )
+                .in_set(GameSystemSet::Input),
+        );
+        schedule.add_systems(
+            (
                 execute_rts_order_system,
                 player_movement_system,
                 stream_terrain_chunks_system,
-                rebuild_dirty_chunks_system,
                 recompute_structural_integrity_system,
+            )
+                .in_set(GameSystemSet::Simulation),
+        );
+        schedule.add_systems(
+            (
+                rebuild_dirty_chunks_system,
                 update_destruction_effects_system,
                 update_active_building_system,
                 update_building_floor_visibility_system,
                 update_wall_cutaway_system,
+            )
+                .in_set(GameSystemSet::WorldSync),
+        );
+        schedule.add_systems(
+            (
+                camera_controller_system,
                 update_building_hud_system,
                 update_inventory_hud_system,
-                camera_controller_system,
+                cull_distant_lights_system,
             )
-                .chain(),
+                .in_set(GameSystemSet::Presentation),
         );
         let mut world = World::new();
         schedule

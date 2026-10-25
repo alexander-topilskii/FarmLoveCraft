@@ -4,8 +4,14 @@ use bevy::prelude::*;
 
 pub const PLAYER_RADIUS: f32 = 0.36;
 pub const NAV_CELL_SIZE: f32 = 0.30;
+pub const SPATIAL_CELL_SIZE: f32 = 4.0;
 #[allow(dead_code)]
 pub const NAV_HALF_EXTENT: i32 = 260; // [-78m .. +78m]
+
+#[inline]
+fn spatial_cell_coord(val: f32) -> i32 {
+    (val / SPATIAL_CELL_SIZE).floor() as i32
+}
 
 /// Уникальный идентификатор физического коллайдера для динамического удаления при разрушении объекта
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -39,6 +45,7 @@ impl ColliderRect {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn applies_to_floor(&self, floor: i32) -> bool {
         match self.floor {
             Some(f) => f == floor,
@@ -192,6 +199,8 @@ impl PartialOrd for AStarNode {
 #[derive(Resource, Default)]
 pub struct NavWorld {
     pub colliders: Vec<ColliderRect>,
+    pub collider_map: HashMap<ColliderId, ColliderRect>,
+    pub spatial_grid: HashMap<(i32, i32, i32), Vec<ColliderId>>,
     pub stairs: Vec<StairLink>,
     pub floor_zones: Vec<FloorElevationZone>,
     next_collider_id: u64,
@@ -203,6 +212,36 @@ impl NavWorld {
     fn alloc_collider_id(&mut self) -> ColliderId {
         self.next_collider_id += 1;
         ColliderId(self.next_collider_id)
+    }
+
+    fn index_collider_in_grid(&mut self, col: &ColliderRect) {
+        let min_x = spatial_cell_coord(col.center.x - col.half_extents.x);
+        let max_x = spatial_cell_coord(col.center.x + col.half_extents.x);
+        let min_z = spatial_cell_coord(col.center.y - col.half_extents.y);
+        let max_z = spatial_cell_coord(col.center.y + col.half_extents.y);
+        let floor = col.floor.unwrap_or(0);
+
+        for cx in min_x..=max_x {
+            for cz in min_z..=max_z {
+                self.spatial_grid.entry((cx, cz, floor)).or_default().push(col.id);
+            }
+        }
+    }
+
+    fn unindex_collider_from_grid(&mut self, col: &ColliderRect) {
+        let min_x = spatial_cell_coord(col.center.x - col.half_extents.x);
+        let max_x = spatial_cell_coord(col.center.x + col.half_extents.x);
+        let min_z = spatial_cell_coord(col.center.y - col.half_extents.y);
+        let max_z = spatial_cell_coord(col.center.y + col.half_extents.y);
+        let floor = col.floor.unwrap_or(0);
+
+        for cx in min_x..=max_x {
+            for cz in min_z..=max_z {
+                if let Some(list) = self.spatial_grid.get_mut(&(cx, cz, floor)) {
+                    list.retain(|&id| id != col.id);
+                }
+            }
+        }
     }
 
     /// Добавляет коллайдер на первый этаж / улицу (`floor = 0`)
@@ -220,14 +259,17 @@ impl NavWorld {
         floor: i32,
     ) -> ColliderId {
         let id = self.alloc_collider_id();
-        self.colliders.push(ColliderRect::new_on_floor(
+        let col = ColliderRect::new_on_floor(
             id,
             x,
             z,
             half_x,
             half_z,
             Some(floor),
-        ));
+        );
+        self.index_collider_in_grid(&col);
+        self.collider_map.insert(id, col);
+        self.colliders.push(col);
         id
     }
 
@@ -235,6 +277,11 @@ impl NavWorld {
     pub fn remove_colliders(&mut self, ids: &[ColliderId]) {
         if ids.is_empty() {
             return;
+        }
+        for id in ids {
+            if let Some(col) = self.collider_map.remove(id) {
+                self.unindex_collider_from_grid(&col);
+            }
         }
         self.colliders.retain(|c| !ids.contains(&c.id));
     }
@@ -298,17 +345,44 @@ impl NavWorld {
             }
         }
 
-        !self
-            .colliders
-            .iter()
-            .filter(|c| c.applies_to_floor(floor))
-            .any(|c| c.intersects_circle(pos, radius))
+        let min_cx = spatial_cell_coord(pos.x - radius);
+        let max_cx = spatial_cell_coord(pos.x + radius);
+        let min_cz = spatial_cell_coord(pos.y - radius);
+        let max_cz = spatial_cell_coord(pos.y + radius);
+
+        for cx in min_cx..=max_cx {
+            for cz in min_cz..=max_cz {
+                if let Some(cell_colliders) = self.spatial_grid.get(&(cx, cz, floor)) {
+                    for &id in cell_colliders {
+                        if let Some(col) = self.collider_map.get(&id) {
+                            if col.intersects_circle(pos, radius) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        true
     }
 
     pub fn resolve_collisions_on_floor(&self, mut pos: Vec2, floor: i32, radius: f32) -> Vec2 {
         for _ in 0..3 {
-            for col in self.colliders.iter().filter(|c| c.applies_to_floor(floor)) {
-                pos = col.resolve_circle(pos, radius);
+            let min_cx = spatial_cell_coord(pos.x - radius - 0.4);
+            let max_cx = spatial_cell_coord(pos.x + radius + 0.4);
+            let min_cz = spatial_cell_coord(pos.y - radius - 0.4);
+            let max_cz = spatial_cell_coord(pos.y + radius + 0.4);
+
+            for cx in min_cx..=max_cx {
+                for cz in min_cz..=max_cz {
+                    if let Some(cell_colliders) = self.spatial_grid.get(&(cx, cz, floor)) {
+                        for &id in cell_colliders {
+                            if let Some(col) = self.collider_map.get(&id) {
+                                pos = col.resolve_circle(pos, radius);
+                            }
+                        }
+                    }
+                }
             }
         }
         pos
@@ -579,7 +653,7 @@ impl NavWorld {
             }
 
             iterations += 1;
-            if iterations > 64_000 {
+            if iterations > 16_000 {
                 break;
             }
 

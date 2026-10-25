@@ -15,6 +15,10 @@ use crate::player::{on_character_scene_ready, CharacterAnimations, Player};
 use crate::rts_command::{BuildableKitAssets, InventoryHudText};
 use crate::terrain::{ChunkCoord, ProceduralBiomeAssets, TerrainChunkEntity, WorldTerrain};
 
+/// Маркер фонаря Сыщика, чтобы дистанционный куллинг не отключал его свет (OPT-08)
+#[derive(Component)]
+pub struct PlayerLanternLight;
+
 /// Набор переиспользуемых ассетов для сборки многоэтажных интерьеров
 #[derive(Clone)]
 struct InteriorKitAssets {
@@ -772,6 +776,7 @@ pub fn setup_world(
                     ..default()
                 },
                 Transform::from_xyz(0.35, 1.0, 0.35),
+                PlayerLanternLight,
             ));
         });
 

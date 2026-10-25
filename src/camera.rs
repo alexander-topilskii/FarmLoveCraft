@@ -94,6 +94,34 @@ pub fn camera_controller_system(
     cam_transform.look_at(focus + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
 }
 
+/// Дистанционный culling уличных и интерьерных источников света PointLight (OPT-08)
+pub fn cull_distant_lights_system(
+    player_query: Query<&Transform, With<Player>>,
+    mut lights_query: Query<
+        (&GlobalTransform, &mut Visibility),
+        (With<PointLight>, Without<crate::world::PlayerLanternLight>),
+    >,
+) {
+    let Ok(player_tf) = player_query.single() else {
+        return;
+    };
+    let player_xz = Vec2::new(player_tf.translation.x, player_tf.translation.z);
+    let max_dist_sq = 45.0 * 45.0;
+
+    for (light_gtf, mut vis) in &mut lights_query {
+        let light_pos = light_gtf.translation();
+        let light_xz = Vec2::new(light_pos.x, light_pos.z);
+        let desired = if player_xz.distance_squared(light_xz) <= max_dist_sq {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        if *vis != desired {
+            *vis = desired;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

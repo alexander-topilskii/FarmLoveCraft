@@ -147,26 +147,57 @@ fn ray_plane_hit(ray: Ray3d, plane_y: f32) -> Option<Vec3> {
     }
 }
 
-/// Пересечение 3D-луча с вертикальным цилиндром объекта `(center_base, radius, height)`
+/// Аналитическое пересечение 3D-луча с вертикальным цилиндром объекта `(center_base, radius, height)` (OPT-05)
 fn ray_cylinder_distance(ray: Ray3d, base_pos: Vec3, radius: f32, height: f32) -> Option<f32> {
     let min_y = base_pos.y - 0.25;
     let max_y = base_pos.y + height + 0.25;
 
-    // Проверяем несколько высотных срезов вдоль объекта для точного выбора стен, деревьев и колонн
+    let oxz = Vec2::new(ray.origin.x, ray.origin.z);
+    let dxz = Vec2::new(ray.direction.x, ray.direction.z);
+    let cxz = Vec2::new(base_pos.x, base_pos.z);
+    let delta = oxz - cxz;
+
+    let a = dxz.length_squared();
     let mut best_t: Option<f32> = None;
-    for step in 0..=8 {
-        let frac = step as f32 / 8.0;
-        let sample_y = min_y + (max_y - min_y) * frac;
-        if let Some(hit) = ray_plane_hit(ray, sample_y) {
-            let dxz = Vec2::new(hit.x - base_pos.x, hit.z - base_pos.z).length();
-            if dxz <= radius {
-                let t = (hit - ray.origin).length();
-                if best_t.map_or(true, |b| t < b) {
-                    best_t = Some(t);
+
+    if a > 1e-6 {
+        let b = 2.0 * delta.dot(dxz);
+        let c = delta.length_squared() - radius * radius;
+        let disc = b * b - 4.0 * a * c;
+
+        if disc >= 0.0 {
+            let sqrt_disc = disc.sqrt();
+            let t1 = (-b - sqrt_disc) / (2.0 * a);
+            let t2 = (-b + sqrt_disc) / (2.0 * a);
+
+            for t in [t1, t2] {
+                if t > 0.0 {
+                    let y = ray.origin.y + t * ray.direction.y;
+                    if y >= min_y && y <= max_y {
+                        if best_t.map_or(true, |b| t < b) {
+                            best_t = Some(t);
+                        }
+                    }
                 }
             }
         }
     }
+
+    // Проверяем верхнюю и нижнюю крышки цилиндра
+    if ray.direction.y.abs() > 1e-5 {
+        for cap_y in [min_y, max_y] {
+            let t = (cap_y - ray.origin.y) / ray.direction.y;
+            if t > 0.0 {
+                let hit_xz = oxz + dxz * t;
+                if hit_xz.distance_squared(cxz) <= radius * radius {
+                    if best_t.map_or(true, |b| t < b) {
+                        best_t = Some(t);
+                    }
+                }
+            }
+        }
+    }
+
     best_t
 }
 
