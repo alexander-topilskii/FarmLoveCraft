@@ -8,6 +8,18 @@ pub struct CameraController {
     pub yaw: f32,
     pub pitch: f32,
     pub distance: f32,
+    pub current_focus: Option<Vec3>,
+}
+
+impl Default for CameraController {
+    fn default() -> Self {
+        Self {
+            yaw: 0.0,
+            pitch: 42.0_f32.to_radians(),
+            distance: 24.0,
+            current_focus: None,
+        }
+    }
 }
 
 pub fn camera_controller_system(
@@ -62,6 +74,13 @@ pub fn camera_controller_system(
         }
     }
 
+    let dt = time.delta_secs().clamp(0.0, 0.1);
+    let focus = match controller.current_focus {
+        Some(prev) => prev.lerp(target, (10.0 * dt).min(1.0)),
+        None => target,
+    };
+    controller.current_focus = Some(focus);
+
     let cos_pitch = controller.pitch.cos();
     let sin_pitch = controller.pitch.sin();
 
@@ -71,10 +90,71 @@ pub fn camera_controller_system(
         controller.yaw.cos() * cos_pitch * controller.distance,
     );
 
-    let desired_cam_pos = target + offset;
+    cam_transform.translation = focus + offset;
+    cam_transform.look_at(focus + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
+}
 
-    cam_transform.translation = cam_transform
-        .translation
-        .lerp(desired_cam_pos, 10.0 * time.delta_secs());
-    cam_transform.look_at(target + Vec3::new(0.0, 1.0, 0.0), Vec3::Y);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_camera_focus_smooth_following_and_stable_orientation() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ButtonInput<MouseButton>>();
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.init_resource::<AccumulatedMouseMotion>();
+        app.init_resource::<AccumulatedMouseScroll>();
+        app.init_resource::<ActiveBuildingState>();
+        app.init_resource::<BuildingRegistry>();
+
+        let player = app
+            .world_mut()
+            .spawn((
+                Player {
+                    speed: 9.0,
+                    current_floor: 0,
+                    path: std::collections::VecDeque::new(),
+                    keyboard_vel: Vec3::ZERO,
+                    is_moving: true,
+                },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+            ))
+            .id();
+
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                CameraController::default(),
+                Transform::default(),
+            ))
+            .id();
+
+        app.add_systems(Update, camera_controller_system);
+
+        // Первый кадр
+        app.update();
+
+        let cam_tf_1 = *app.world().get::<Transform>(camera).unwrap();
+        let controller_1 = app.world().get::<CameraController>(camera).unwrap();
+        assert!(controller_1.current_focus.is_some());
+
+        // Персонаж перемещается на скорости
+        app.world_mut()
+            .get_mut::<Transform>(player)
+            .unwrap()
+            .translation = Vec3::new(5.0, 0.0, 5.0);
+        app.update();
+
+        let cam_tf_2 = *app.world().get::<Transform>(camera).unwrap();
+        // Вектор поворота камеры должен оставаться строго выровненным (без рывков rotation)
+        let forward_1 = cam_tf_1.forward();
+        let forward_2 = cam_tf_2.forward();
+        assert!(
+            (forward_1.dot(*forward_2) - 1.0).abs() < 1e-4,
+            "Направление обзора камеры должно быть стабильным без угловых рывков"
+        );
+    }
 }

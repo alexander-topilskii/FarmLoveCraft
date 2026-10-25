@@ -186,7 +186,9 @@ pub fn player_input_system(
         };
 
         let waypoints = nav_world.find_path(start_xz, start_floor, goal_xz, goal_floor);
-        player.path = waypoints.into();
+        if !waypoints.is_empty() {
+            player.path = waypoints.into();
+        }
     }
 }
 

@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 pub const PLAYER_RADIUS: f32 = 0.36;
 pub const NAV_CELL_SIZE: f32 = 0.30;
+#[allow(dead_code)]
 pub const NAV_HALF_EXTENT: i32 = 260; // [-78m .. +78m]
 
 /// Уникальный идентификатор физического коллайдера для динамического удаления при разрушении объекта
@@ -45,7 +46,16 @@ impl ColliderRect {
         }
     }
 
+    #[inline]
     pub fn intersects_circle(&self, pos: Vec2, radius: f32) -> bool {
+        let max_dist_x = self.half_extents.x + radius;
+        if (pos.x - self.center.x).abs() > max_dist_x {
+            return false;
+        }
+        let max_dist_z = self.half_extents.y + radius;
+        if (pos.y - self.center.y).abs() > max_dist_z {
+            return false;
+        }
         let closest = pos.clamp(self.center - self.half_extents, self.center + self.half_extents);
         pos.distance_squared(closest) < radius * radius
     }
@@ -425,10 +435,7 @@ impl NavWorld {
     }
 
     fn is_cell_walkable(&self, cell: NavCell) -> bool {
-        if cell.x.abs() > NAV_HALF_EXTENT || cell.z.abs() > NAV_HALF_EXTENT {
-            return false;
-        }
-        self.is_walkable_pos_on_floor(Self::cell_to_world(cell.xz()), cell.floor, PLAYER_RADIUS + 0.02)
+        self.is_walkable_pos_on_floor(Self::cell_to_world(cell.xz()), cell.floor, PLAYER_RADIUS)
     }
 
     fn find_nearest_walkable(&self, origin: NavCell) -> Option<NavCell> {
@@ -469,13 +476,15 @@ impl NavWorld {
     }
 
     fn has_line_of_sight_on_floor(&self, a: Vec2, b: Vec2, floor: i32) -> bool {
-        // Не спрямляем путь сквозь лестничный марш, чтобы персонаж заходил на лестницу ровно со входа
         let dist = a.distance(b);
-        let steps = ((dist / (NAV_CELL_SIZE * 0.45)).ceil() as i32).max(1);
+        if dist <= 0.05 {
+            return true;
+        }
+        let steps = ((dist / (NAV_CELL_SIZE * 0.5)).ceil() as i32).max(1);
         for i in 1..=steps {
             let t = i as f32 / steps as f32;
             let p = a.lerp(b, t);
-            if !self.is_walkable_pos_on_floor(p, floor, PLAYER_RADIUS + 0.02) {
+            if !self.is_walkable_pos_on_floor(p, floor, PLAYER_RADIUS) {
                 return false;
             }
         }
@@ -502,7 +511,11 @@ impl NavWorld {
         };
 
         if start_cell == goal_cell {
-            let final_pt = Self::cell_to_world(goal_cell.xz());
+            let final_pt = if self.is_walkable_pos_on_floor(goal_world, goal_floor, PLAYER_RADIUS) {
+                goal_world
+            } else {
+                Self::cell_to_world(goal_cell.xz())
+            };
             let y = self.elevation_on_floor(final_pt, goal_floor);
             return vec![PathWaypoint {
                 pos: Vec3::new(final_pt.x, y, final_pt.y),
@@ -566,7 +579,7 @@ impl NavWorld {
             }
 
             iterations += 1;
-            if iterations > 32_000 {
+            if iterations > 64_000 {
                 break;
             }
 
@@ -658,7 +671,7 @@ impl NavWorld {
         if let Some(first) = raw_pts.first_mut() {
             first.0 = start_world;
         }
-        let exact_goal = if self.is_walkable_pos_on_floor(goal_world, goal_floor, PLAYER_RADIUS + 0.03) {
+        let exact_goal = if self.is_walkable_pos_on_floor(goal_world, goal_floor, PLAYER_RADIUS) {
             goal_world
         } else {
             Self::cell_to_world(goal_cell.xz())
@@ -676,9 +689,9 @@ impl NavWorld {
 
             // Если следующий шаг меняет этаж (лестничный марш), не пропускаем точку входа/выхода лестницы
             if raw_pts[furthest_idx].1 == anchor_floor {
-                for test_idx in (anchor_idx + 2)..raw_pts.len() {
+                for test_idx in ((anchor_idx + 2)..raw_pts.len()).rev() {
                     if raw_pts[test_idx].1 != anchor_floor {
-                        break;
+                        continue;
                     }
                     if self.has_line_of_sight_on_floor(
                         raw_pts[anchor_idx].0,
@@ -686,6 +699,7 @@ impl NavWorld {
                         anchor_floor,
                     ) {
                         furthest_idx = test_idx;
+                        break;
                     }
                 }
             }
@@ -697,6 +711,11 @@ impl NavWorld {
                 floor: wp_floor,
             });
             anchor_idx = furthest_idx;
+        }
+
+        // Если первая путевая точка практически совпадает с текущим положением игрока, сразу направляемся дальше
+        if smooth_path.len() > 1 && smooth_path[0].pos.xz().distance(start_world) < 0.25 {
+            smooth_path.remove(0);
         }
 
         smooth_path
@@ -737,6 +756,30 @@ mod tests {
         let (mid_y, floor_going_up) = nav.sample_elevation_and_floor(Vec2::new(-7.6, 3.0), 0);
         assert!(mid_y > 2.5 && mid_y < 4.5);
         assert_eq!(floor_going_up, 1, "При подъеме выше середины лестницы этаж переключается на 1");
+    }
+
+    #[test]
+    fn test_unlimited_world_navigation_beyond_starting_extent() {
+        let nav = NavWorld::default();
+        // Раньше навигация была жестко ограничена NAV_HALF_EXTENT = 260 ячеек (78 метров).
+        // Проверяем, что теперь персонаж может свободно находить путь далеко за пределы 78м (например на 150 метров).
+        let path_far = nav.find_path(Vec2::new(0.0, 0.0), 0, Vec2::new(120.0, 150.0), 0);
+        assert!(!path_far.is_empty(), "Путь далеко за пределы 78 метров должен быть найден без ограничений");
+        let last = path_far.last().unwrap();
+        assert!((last.pos.x - 120.0).abs() < 0.5);
+        assert!((last.pos.z - 150.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn test_path_replanning_while_moving_prunes_near_waypoint() {
+        let nav = NavWorld::default();
+        // Персонаж находится в движении в точке (10.0, 5.0) и кликает в (20.0, 5.0)
+        let path = nav.find_path(Vec2::new(10.0, 5.0), 0, Vec2::new(20.0, 5.0), 0);
+        assert!(!path.is_empty());
+        // Первая точка не должна быть микро-шагом на месте
+        if let Some(first) = path.first() {
+            assert!(first.pos.x > 10.2);
+        }
     }
 }
 

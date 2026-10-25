@@ -707,7 +707,9 @@ pub fn rts_menu_interaction_system(
                 // Прокладываем маршрут к цели приказа (если цель заблокирована самим объектом,
                 // `find_nearest_walkable` внутри `find_path` автоматически найдет ближайшую свободную точку рядом!)
                 let path = nav_world.find_path(start_xz, player.current_floor, goal_xz, goal_floor);
-                player.path = path.into();
+                if !path.is_empty() {
+                    player.path = path.into();
+                }
                 active_order.status_message = match &order {
                     RtsOrder::Demolish { .. } => "Приказ: Иду разрушать объект...".to_string(),
                     RtsOrder::Repair { .. } => "Приказ: Иду чинить конструкцию...".to_string(),

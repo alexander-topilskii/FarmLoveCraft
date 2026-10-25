@@ -758,6 +758,7 @@ pub fn setup_world(
             yaw: 0.0,
             pitch: 42.0_f32.to_radians(),
             distance: 24.0,
+            current_focus: None,
         },
         Transform::from_xyz(0.0, 18.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
