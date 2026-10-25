@@ -21,6 +21,7 @@ pub struct BuildableKitAssets {
     pub floor: Handle<WorldAsset>,
     pub candelabra: Handle<WorldAsset>,
     pub bush_tentacle: Handle<WorldAsset>,
+    pub well: Handle<WorldAsset>,
 }
 
 /// Чертежи модульных построек, доступных в RTS-меню
@@ -38,6 +39,8 @@ pub enum BuildBlueprint {
     Candelabra,
     /// Фермерский саженец Лавкрафтовских Щупалец (производит Страхи)
     TentacleSprout,
+    /// Колодец Бездны — источник проточной воды (Minecraft-style)
+    WaterWellSource,
 }
 
 impl BuildBlueprint {
@@ -49,6 +52,7 @@ impl BuildBlueprint {
             BuildBlueprint::FloorSlab => "Каменная плита перекрытия",
             BuildBlueprint::Candelabra => "Кованый канделябр",
             BuildBlueprint::TentacleSprout => "Саженец Щупалец (Ферма)",
+            BuildBlueprint::WaterWellSource => "Колодец Бездны (Источник воды)",
         }
     }
 
@@ -60,6 +64,7 @@ impl BuildBlueprint {
             BuildBlueprint::FloorSlab => &[(ResourceType::Stone, 2)],
             BuildBlueprint::Candelabra => &[(ResourceType::Wood, 1), (ResourceType::Fear, 1)],
             BuildBlueprint::TentacleSprout => &[(ResourceType::Soil, 1)],
+            BuildBlueprint::WaterWellSource => &[(ResourceType::Stone, 2), (ResourceType::Fear, 1)],
         }
     }
 }
@@ -562,6 +567,7 @@ fn spawn_rts_context_menu(
                 BuildBlueprint::CastlePillar,
                 BuildBlueprint::FloorSlab,
                 BuildBlueprint::Candelabra,
+                BuildBlueprint::WaterWellSource,
             ] {
                 let cost_str = bp
                     .costs()
@@ -756,23 +762,32 @@ pub fn rts_menu_interaction_system(
     }
 }
 
+/// Объединенный набор ассетов и ресурсов для выполнения приказов (OPT-09 + SystemParam)
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct RtsExecutionAssets<'w> {
+    pub meshes: ResMut<'w, Assets<Mesh>>,
+    pub materials: ResMut<'w, Assets<StandardMaterial>>,
+    pub kit_assets: Option<Res<'w, BuildableKitAssets>>,
+    pub loot_models: Option<Res<'w, ResourceModelAssets>>,
+    pub vfx: Option<Res<'w, SharedVfxAssets>>,
+    pub water_world: Option<ResMut<'w, crate::water_cellular::WaterWorld>>,
+}
+
 /// Система выполнения текущего RTS-приказа Сыщиком при подходе к цели
 #[allow(clippy::too_many_arguments)]
 pub fn execute_rts_order_system(
     mut commands: Commands,
     time: Res<Time>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     mut gizmos: Gizmos,
     mut active_order: ResMut<ActiveRtsOrder>,
     mut terrain: ResMut<WorldTerrain>,
     mut nav_world: ResMut<NavWorld>,
     mut inventory: ResMut<PlayerInventory>,
     mut integrity_dirty: ResMut<StructuralIntegrityDirty>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    kit_assets: Option<Res<BuildableKitAssets>>,
-    loot_models: Option<Res<ResourceModelAssets>>,
-    vfx: Option<Res<SharedVfxAssets>>,
     building_state: Res<ActiveBuildingState>,
+    mut assets: RtsExecutionAssets,
+    pieces_query: Query<&StructuralPiece>,
     mut player_query: Query<(&mut Player, &mut Transform)>,
     mut destructibles_query: Query<(&GlobalTransform, &mut Destructible)>,
 ) {
@@ -833,10 +848,10 @@ pub fn execute_rts_order_system(
                     *swing_timer = 0.50; // Каждые 0.5с — взмах топором
                     let destroyed = apply_damage_to_entity(
                         &mut commands,
-                        &mut meshes,
-                        &mut materials,
-                        loot_models.as_deref(),
-                        vfx.as_deref(),
+                        &mut assets.meshes,
+                        &mut assets.materials,
+                        assets.loot_models.as_deref(),
+                        assets.vfx.as_deref(),
                         &mut nav_world,
                         &mut integrity_dirty,
                         *target,
@@ -845,8 +860,13 @@ pub fn execute_rts_order_system(
                         10.0, // 10 урона за удар: 10 ударов * 0.5с = ровно 5.0 секунд на дерево (100 HP)!
                     );
                     if destroyed {
+                        if dest.title.contains("Колодец") {
+                            if let Some(ref mut ww) = assets.water_world {
+                                ww.remove_source(Vec2::new(target_pos.x, target_pos.z));
+                            }
+                        }
                         active_order.status_message =
-                            format!("«{}» срублено! Ресурсы выпали на землю.", dest.title);
+                            format!("«{}» разрушено! Ресурсы выпали на землю.", dest.title);
                         return;
                     } else {
                         let remaining_secs = (dest.hp / 10.0) * 0.5;
@@ -937,11 +957,14 @@ pub fn execute_rts_order_system(
                     terrain.apply_terraform(*center_xz, 3.6, *op, &mut nav_world);
                     // Если раскопали землю под стенами — пересчитываем структурную опору!
                     integrity_dirty.0 = true;
+                    if let Some(ref mut ww) = assets.water_world {
+                        ww.is_dirty = true;
+                    }
                     spawn_debris_burst(
                         &mut commands,
-                        &mut meshes,
-                        &mut materials,
-                        vfx.as_deref(),
+                        &mut assets.meshes,
+                        &mut assets.materials,
+                        assets.vfx.as_deref(),
                         marker_pos,
                         Color::srgb(0.32, 0.24, 0.16),
                         Some(DestructibleMaterial::Wood),
@@ -960,19 +983,64 @@ pub fn execute_rts_order_system(
             blueprint,
             work_timer,
         } => {
+            // Клавиша [R] — вращение чертежа на 90 градусов (Phase 2, Step 2.3)
+            if keyboard.just_pressed(KeyCode::KeyR) {
+                *yaw += std::f32::consts::FRAC_PI_2;
+            }
+
             let build_xz = Vec2::new(pos.x, pos.z);
             let dist = player_xz.distance(build_xz);
 
-            // Рисуем изумрудный голографический контур (Ghost Preview) будущей постройки
+            // Проверка структурной опоры Valheim для отображения Hologram / Ghost Preview
+            let ground_h = terrain.sample_height(pos.x, pos.z);
+            let is_grounded = pos.y <= ground_h + 0.8;
+            let has_support = is_grounded || pieces_query.iter().any(|piece| {
+                piece.world_pos.y < pos.y
+                    && pos.y - piece.world_pos.y <= 4.8
+                    && Vec2::new(piece.world_pos.x - pos.x, piece.world_pos.z - pos.z).length() <= 4.2
+                    && piece.current_support >= 15.0
+            });
+
+            let ghost_color = if has_support {
+                Color::srgba(0.25, 0.95, 0.58, 0.85) // Изумрудный — опора надежна
+            } else {
+                Color::srgba(0.95, 0.25, 0.25, 0.85) // Алый — конструкция обрушится без опоры снизу!
+            };
+
+            let ghost_size = match blueprint {
+                BuildBlueprint::CastleWall | BuildBlueprint::CastleArch => {
+                    if (*yaw).abs() > 0.5 {
+                        Vec3::new(0.8, 3.0, 3.6)
+                    } else {
+                        Vec3::new(3.6, 3.0, 0.8)
+                    }
+                }
+                BuildBlueprint::CastlePillar => Vec3::new(1.2, 4.2, 1.2),
+                BuildBlueprint::FloorSlab => Vec3::new(4.2, 0.3, 4.2),
+                BuildBlueprint::Candelabra => Vec3::new(0.8, 2.2, 0.8),
+                BuildBlueprint::TentacleSprout => Vec3::new(1.4, 1.4, 1.4),
+                BuildBlueprint::WaterWellSource => Vec3::new(2.4, 2.0, 2.4),
+            };
+
+            // Рисуем голографический контур (Ghost Preview) будущей постройки
             gizmos.cube(
-                Transform::from_translation(*pos + Vec3::Y * 1.5)
+                Transform::from_translation(*pos + Vec3::Y * (ghost_size.y * 0.5))
                     .with_rotation(Quat::from_rotation_y(*yaw))
-                    .with_scale(Vec3::new(3.6, 3.0, 0.8)),
-                Color::srgba(0.25, 0.95, 0.58, 0.85),
+                    .with_scale(ghost_size),
+                ghost_color,
             );
 
             if dist <= 3.4 {
                 player.path.clear();
+
+                if !has_support && *floor > 0 {
+                    active_order.status_message = format!(
+                        "Невозможно построить «{}»: нет несущей опоры снизу (стены/колонны)!",
+                        blueprint.title()
+                    );
+                    return;
+                }
+
                 *work_timer -= dt;
                 if *work_timer <= 0.0 {
                     if !inventory.spend(blueprint.costs()) {
@@ -983,11 +1051,13 @@ pub fn execute_rts_order_system(
                         return;
                     }
 
-                    if let Some(ref kit) = kit_assets {
+                    if let Some(ref kit) = assets.kit_assets {
                         spawn_built_piece(
                             &mut commands,
                             &mut nav_world,
                             &mut integrity_dirty,
+                            assets.water_world.as_deref_mut(),
+                            &terrain,
                             kit,
                             building_state.active_building.unwrap_or(BuildingId(1)),
                             *pos,
@@ -1000,6 +1070,11 @@ pub fn execute_rts_order_system(
                     }
                     return;
                 }
+            } else {
+                active_order.status_message = format!(
+                    "Строим «{}» [R — поворот]...",
+                    blueprint.title()
+                );
             }
             active_order.current = Some(order);
         }
@@ -1012,6 +1087,8 @@ fn spawn_built_piece(
     commands: &mut Commands,
     nav_world: &mut NavWorld,
     integrity_dirty: &mut StructuralIntegrityDirty,
+    water_world: Option<&mut crate::water_cellular::WaterWorld>,
+    terrain: &WorldTerrain,
     kit: &BuildableKitAssets,
     building_id: BuildingId,
     pos: Vec3,
@@ -1132,6 +1209,31 @@ fn spawn_built_piece(
                     ));
                 });
         }
+        BuildBlueprint::WaterWellSource => {
+            let col = nav_world.add_box_on_floor(pos.x, pos.z, 1.25, 1.25, floor);
+            if let Some(ww) = water_world {
+                ww.add_source(Vec2::new(pos.x, pos.z), terrain);
+            }
+            commands
+                .spawn((
+                    WorldAssetRoot(kit.well.clone()),
+                    Transform::from_translation(pos).with_rotation(rot),
+                    Destructible::occult_shrine("Колодец Бездны (Источник воды)", vec![col]),
+                    StructuralPiece::new(StructuralKind::Pillar, pos, floor),
+                ))
+                .with_children(|parent| {
+                    parent.spawn((
+                        PointLight {
+                            color: Color::srgb(0.25, 0.95, 0.55),
+                            intensity: 45_000.0,
+                            range: 9.0,
+                            shadow_maps_enabled: false,
+                            ..default()
+                        },
+                        Transform::from_xyz(0.0, 1.5, 0.0),
+                    ));
+                });
+        }
     }
 
     integrity_dirty.0 = true;
@@ -1189,4 +1291,25 @@ pub fn update_inventory_hud_system(
         inventory.clues,
         status
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_water_well_blueprint_costs_and_source_creation() {
+        let bp = BuildBlueprint::WaterWellSource;
+        assert_eq!(bp.title(), "Колодец Бездны (Источник воды)");
+        let costs = bp.costs();
+        assert!(costs.contains(&(ResourceType::Stone, 2)));
+        assert!(costs.contains(&(ResourceType::Fear, 1)));
+
+        let terrain = WorldTerrain::default();
+        let mut water = crate::water_cellular::WaterWorld::default();
+        let well_pos = Vec2::new(16.0, 16.0);
+        water.add_source(well_pos, &terrain);
+        assert_eq!(water.sample_water_level(16.0, 16.0), 8);
+        assert!(water.is_watered(16.0, 16.0));
+    }
 }

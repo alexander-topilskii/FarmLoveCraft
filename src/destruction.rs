@@ -884,16 +884,6 @@ pub fn update_destruction_effects_system(
             Without<DebrisParticle>,
         ),
     >,
-    mut crop_query: Query<
-        (&mut TentacleCrop, &mut Transform),
-        (
-            Without<Player>,
-            Without<PendingStructuralCollapse>,
-            Without<HitShake>,
-            Without<DebrisParticle>,
-            Without<DroppedLoot>,
-        ),
-    >,
 ) {
     let dt = time.delta_secs();
     let player_pos = player_query
@@ -980,11 +970,28 @@ pub fn update_destruction_effects_system(
             }
         }
     }
+}
 
-    // 5. Рост высаженных Щупалец на ферме
+/// Система роста высаженных на ферме культур (Щупальца Бездны)
+/// В проточной воде (Minecraft water flow) рост ускоряется почти в 3 раза!
+pub fn update_farm_crops_system(
+    time: Res<Time>,
+    water_world: Option<Res<crate::water_cellular::WaterWorld>>,
+    mut crop_query: Query<(&mut TentacleCrop, &mut Transform)>,
+) {
+    let dt = time.delta_secs();
     for (mut crop, mut tf) in &mut crop_query {
         if !crop.harvest_ready {
-            crop.growth = (crop.growth + dt * 0.18).min(1.0);
+            let water_bonus = if let Some(ref water) = water_world {
+                if water.is_watered(tf.translation.x, tf.translation.z) {
+                    2.8
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            };
+            crop.growth = (crop.growth + dt * 0.18 * water_bonus).min(1.0);
             let s = 0.35 + crop.growth * 0.65;
             tf.scale = Vec3::splat(s);
             if crop.growth >= 1.0 {

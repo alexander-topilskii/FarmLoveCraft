@@ -5,6 +5,7 @@ mod navigation;
 mod player;
 mod rts_command;
 mod terrain;
+mod water_cellular;
 mod world;
 
 use bevy::asset::AssetId;
@@ -17,8 +18,8 @@ use building::{
 };
 use camera::{camera_controller_system, cull_distant_lights_system};
 use destruction::{
-    recompute_structural_integrity_system, update_destruction_effects_system, PlayerInventory,
-    StructuralIntegrityDirty,
+    recompute_structural_integrity_system, update_destruction_effects_system, update_farm_crops_system,
+    PlayerInventory, StructuralIntegrityDirty,
 };
 use navigation::NavWorld;
 use player::{player_input_system, player_movement_system};
@@ -27,6 +28,10 @@ use rts_command::{
     update_inventory_hud_system, ActiveRtsOrder, RightClickTracker,
 };
 use terrain::{rebuild_dirty_chunks_system, stream_terrain_chunks_system, WorldTerrain};
+use water_cellular::{
+    sync_water_mesh_system, water_flow_physics_system, water_simulation_system,
+    WaterSimulationTimer, WaterWorld,
+};
 use world::setup_world;
 
 /// Наборы систем для многопоточного выполнения в кадре (OPT-09)
@@ -68,6 +73,8 @@ fn main() {
         .insert_resource(BuildingRegistry::default())
         .insert_resource(ActiveBuildingState::default())
         .insert_resource(CutawayMaterialCache::default())
+        .insert_resource(WaterWorld::default())
+        .insert_resource(WaterSimulationTimer::default())
         .add_systems(Startup, setup_world)
         .configure_sets(
             Update,
@@ -95,6 +102,9 @@ fn main() {
                 player_movement_system,
                 stream_terrain_chunks_system,
                 recompute_structural_integrity_system,
+                update_farm_crops_system,
+                water_simulation_system,
+                water_flow_physics_system,
             )
                 .in_set(GameSystemSet::Simulation),
         )
@@ -106,6 +116,7 @@ fn main() {
                 update_active_building_system,
                 update_building_floor_visibility_system,
                 update_wall_cutaway_system,
+                sync_water_mesh_system,
             )
                 .in_set(GameSystemSet::WorldSync),
         )
@@ -152,6 +163,9 @@ mod tests {
                 player_movement_system,
                 stream_terrain_chunks_system,
                 recompute_structural_integrity_system,
+                update_farm_crops_system,
+                water_simulation_system,
+                water_flow_physics_system,
             )
                 .in_set(GameSystemSet::Simulation),
         );
@@ -162,6 +176,7 @@ mod tests {
                 update_active_building_system,
                 update_building_floor_visibility_system,
                 update_wall_cutaway_system,
+                sync_water_mesh_system,
             )
                 .in_set(GameSystemSet::WorldSync),
         );
