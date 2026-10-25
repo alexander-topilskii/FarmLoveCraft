@@ -1,7 +1,11 @@
+use std::collections::HashMap;
 use bevy::prelude::*;
 use crate::camera::CameraController;
 use crate::navigation::{NavWorld, StairLink};
 use crate::player::Player;
+
+/// Уровень непрозрачности (альфа-канал) для «отрезанных» стен, закрывающих обзор камере
+pub const CUTAWAY_ALPHA: f32 = 0.18;
 
 /// Уникальный идентификатор здания/помещения
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -74,6 +78,16 @@ pub struct ActiveBuildingState {
     pub manual_floor_override: Option<i32>,
 }
 
+/// Кэш полупрозрачных копий материалов для мгновенного переключения прозрачности стен без аллокаций каждый кадр
+#[derive(Resource, Default)]
+pub struct CutawayMaterialCache {
+    pub transparent_by_opaque: HashMap<AssetId<StandardMaterial>, Handle<StandardMaterial>>,
+}
+
+/// Компонент, автоматически сохраняющий исходный непрозрачный материал меша
+#[derive(Component, Clone)]
+pub struct OriginalMaterial(pub Handle<StandardMaterial>);
+
 /// Правило видимости этажа, когда персонаж находится внутри здания
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 #[allow(dead_code)]
@@ -115,7 +129,7 @@ pub struct BuildingExteriorShell {
     pub building_id: BuildingId,
 }
 
-/// Стена или арка, которая плавно «отрезается» по высоте, когда закрывает обзор камере
+/// Стена или арка, которая становится полупрозрачной, когда закрывает обзор камере
 #[derive(Component)]
 pub struct CutawayWall {
     pub building_id: BuildingId,
@@ -126,12 +140,6 @@ pub struct CutawayWall {
     pub world_xz: Vec2,
     /// Является ли стена внутренней перегородкой внутри этажа
     pub is_interior_partition: bool,
-    /// Коэффициент масштаба Y в отрезанном состоянии (например, 0.11 = аккуратный плинтус/срез)
-    pub cutaway_scale_y: f32,
-    /// Базовая высота основания стены (в локальных координатах родителя)
-    pub base_y: f32,
-    /// Смещение центра меша по Y относительно основания (`0.0` для GLB с пивотом снизу, `height * 0.5` для `Cuboid`)
-    pub mesh_origin_offset_y: f32,
 }
 
 impl CutawayWall {
@@ -140,7 +148,7 @@ impl CutawayWall {
         floor_index: i32,
         outward_normal: Vec2,
         world_xz: Vec2,
-        base_y: f32,
+        _base_y: f32,
     ) -> Self {
         Self {
             building_id,
@@ -148,9 +156,6 @@ impl CutawayWall {
             outward_normal: outward_normal.normalize_or_zero(),
             world_xz,
             is_interior_partition: false,
-            cutaway_scale_y: 0.11,
-            base_y,
-            mesh_origin_offset_y: 0.0,
         }
     }
 
@@ -159,7 +164,7 @@ impl CutawayWall {
         floor_index: i32,
         normal: Vec2,
         world_xz: Vec2,
-        base_y: f32,
+        _base_y: f32,
     ) -> Self {
         Self {
             building_id,
@@ -167,14 +172,11 @@ impl CutawayWall {
             outward_normal: normal.normalize_or_zero(),
             world_xz,
             is_interior_partition: true,
-            cutaway_scale_y: 0.11,
-            base_y,
-            mesh_origin_offset_y: 0.0,
         }
     }
 }
 
-/// Колонна или пилон, который «отрезается» вместе с примыкающими к нему стенами
+/// Колонна или пилон, который становится полупрозрачным вместе с примыкающими к нему стенами
 #[derive(Component)]
 pub struct CutawayPillar {
     pub building_id: BuildingId,
@@ -182,9 +184,6 @@ pub struct CutawayPillar {
     /// Нормали примыкающих внешних стен (если пусто — внутренняя колонна зала)
     pub adjacent_normals: Vec<Vec2>,
     pub world_xz: Vec2,
-    pub cutaway_scale_y: f32,
-    pub base_y: f32,
-    pub mesh_origin_offset_y: f32,
 }
 
 impl CutawayPillar {
@@ -193,16 +192,13 @@ impl CutawayPillar {
         floor_index: i32,
         adjacent_normals: Vec<Vec2>,
         world_xz: Vec2,
-        base_y: f32,
+        _base_y: f32,
     ) -> Self {
         Self {
             building_id,
             floor_index,
             adjacent_normals,
             world_xz,
-            cutaway_scale_y: 0.11,
-            base_y,
-            mesh_origin_offset_y: 0.0,
         }
     }
 
@@ -210,29 +206,24 @@ impl CutawayPillar {
         building_id: BuildingId,
         floor_index: i32,
         world_xz: Vec2,
-        base_y: f32,
+        _base_y: f32,
     ) -> Self {
         Self {
             building_id,
             floor_index,
             adjacent_normals: Vec::new(),
             world_xz,
-            cutaway_scale_y: 0.14,
-            base_y,
-            mesh_origin_offset_y: 0.0,
         }
     }
 }
 
-/// Высокая пристенная мебель (шкафы, часы, камины), которая тоже пригибается/срезается,
-/// когда стена за ней отрезана камерой, чтобы не загораживать обзор
+/// Высокая пристенная мебель (шкафы, часы, камины), которая тоже становится полупрозрачной,
+/// когда стена за ней прозрачна, чтобы не загораживать обзор
 #[derive(Component)]
 pub struct CutawayAttachedProp {
     pub building_id: BuildingId,
     pub floor_index: i32,
     pub wall_normal: Vec2,
-    pub cutaway_scale_y: f32,
-    pub base_y: f32,
 }
 
 impl CutawayAttachedProp {
@@ -240,14 +231,12 @@ impl CutawayAttachedProp {
         building_id: BuildingId,
         floor_index: i32,
         wall_normal: Vec2,
-        base_y: f32,
+        _base_y: f32,
     ) -> Self {
         Self {
             building_id,
             floor_index,
             wall_normal: wall_normal.normalize_or_zero(),
-            cutaway_scale_y: 0.15,
-            base_y,
         }
     }
 }
@@ -370,8 +359,6 @@ pub fn update_building_floor_visibility_system(
                 }
             }
         } else {
-            // Снаружи здания: если у дома есть внешняя оболочка, скрываем внутренние этажи;
-            // если здание полностью модульное (Замок), показываем все этажи снаружи
             !has_shell
         };
 
@@ -410,31 +397,77 @@ pub fn update_building_floor_visibility_system(
     }
 }
 
-/// Система плавного «отрезания» стен, колонн и высокой пристенной мебели, перекрывающих обзор камере
+/// Вспомогательная функция: мгновенно переключает все дочерние меши объекта между непрозрачным и полупрозрачным материалом
+fn apply_entity_transparency(
+    root_entity: Entity,
+    transparent: bool,
+    children_query: &Query<&Children>,
+    mesh_materials: &mut Query<(&mut MeshMaterial3d<StandardMaterial>, Option<&OriginalMaterial>)>,
+    materials: &mut Assets<StandardMaterial>,
+    cache: &mut CutawayMaterialCache,
+    commands: &mut Commands,
+) {
+    for descendant in children_query.iter_descendants(root_entity) {
+        let Ok((mut mat_comp, orig_opt)) = mesh_materials.get_mut(descendant) else {
+            continue;
+        };
+
+        let orig_handle = if let Some(orig) = orig_opt {
+            orig.0.clone()
+        } else {
+            let h = mat_comp.0.clone();
+            commands.entity(descendant).insert(OriginalMaterial(h.clone()));
+            h
+        };
+
+        if transparent {
+            let orig_id = orig_handle.id();
+            let trans_handle = if let Some(cached) = cache.transparent_by_opaque.get(&orig_id) {
+                cached.clone()
+            } else if let Some(orig_mat) = materials.get(&orig_handle).cloned() {
+                let mut trans_mat = orig_mat;
+                trans_mat.base_color = trans_mat.base_color.with_alpha(CUTAWAY_ALPHA);
+                trans_mat.alpha_mode = AlphaMode::Blend;
+                trans_mat.double_sided = true;
+                let handle = materials.add(trans_mat);
+                cache.transparent_by_opaque.insert(orig_id, handle.clone());
+                handle
+            } else {
+                continue;
+            };
+
+            if mat_comp.0 != trans_handle {
+                mat_comp.0 = trans_handle;
+            }
+        } else if mat_comp.0 != orig_handle {
+            mat_comp.0 = orig_handle;
+        }
+    }
+}
+
+/// Система мгновенного переключения прозрачности стен, колонн и высокой пристенной мебели,
+/// перекрывающих обзор камере (без анимации опускания по высоте)
+#[allow(clippy::too_many_arguments)]
 pub fn update_wall_cutaway_system(
-    time: Res<Time>,
+    mut commands: Commands,
     state: Res<ActiveBuildingState>,
+    mut cache: ResMut<CutawayMaterialCache>,
+    mut materials: Option<ResMut<Assets<StandardMaterial>>>,
     player_query: Query<&Transform, With<Player>>,
     camera_query: Query<(&Transform, &CameraController), (With<Camera3d>, Without<Player>)>,
-    mut walls: Query<(&CutawayWall, &mut Transform), (Without<Player>, Without<Camera3d>)>,
-    mut pillars: Query<
-        (&CutawayPillar, &mut Transform),
-        (Without<Player>, Without<Camera3d>, Without<CutawayWall>),
-    >,
-    mut attached_props: Query<
-        (&CutawayAttachedProp, &mut Transform),
-        (
-            Without<Player>,
-            Without<Camera3d>,
-            Without<CutawayWall>,
-            Without<CutawayPillar>,
-        ),
-    >,
+    walls: Query<(Entity, &CutawayWall)>,
+    pillars: Query<(Entity, &CutawayPillar)>,
+    attached_props: Query<(Entity, &CutawayAttachedProp)>,
+    children_query: Query<&Children>,
+    mut mesh_materials: Query<(&mut MeshMaterial3d<StandardMaterial>, Option<&OriginalMaterial>)>,
 ) {
     let Ok(player_tf) = player_query.single() else {
         return;
     };
     let Ok((cam_tf, _cam_ctrl)) = camera_query.single() else {
+        return;
+    };
+    let Some(materials) = materials.as_deref_mut() else {
         return;
     };
 
@@ -443,20 +476,15 @@ pub fn update_wall_cutaway_system(
     // Вектор в горизонтальной плоскости XZ от персонажа к камере
     let to_camera_xz = (cam_xz - player_xz).normalize_or_zero();
 
-    let lerp_speed = (14.0 * time.delta_secs()).clamp(0.0, 1.0);
-
-    // 1. Обновляем срез стен (внешних и внутренних перегородок)
-    for (wall, mut tf) in &mut walls {
+    // 1. Переключаем прозрачность стен (внешних и внутренних перегородок)
+    for (entity, wall) in &walls {
         let is_active_floor = state.active_building == Some(wall.building_id)
             && state.viewed_floor == wall.floor_index;
 
         let should_cut = if is_active_floor {
             if !wall.is_interior_partition {
-                // Внешняя стена отрезается, если ее внешняя нормаль повернута к камере
                 wall.outward_normal.dot(to_camera_xz) > 0.22
             } else {
-                // Внутренняя перегородка отрезается, если она расположена между игроком и камерой
-                // и повернута плоскостью к камере
                 let rel_to_player = wall.world_xz - player_xz;
                 let in_front_of_player = rel_to_player.dot(to_camera_xz) > -0.6;
                 let faces_camera = wall.outward_normal.dot(to_camera_xz).abs() > 0.25;
@@ -466,26 +494,29 @@ pub fn update_wall_cutaway_system(
             false
         };
 
-        let target_scale_y = if should_cut { wall.cutaway_scale_y } else { 1.0 };
-        let new_scale_y = tf.scale.y + (target_scale_y - tf.scale.y) * lerp_speed;
-        tf.scale.y = new_scale_y;
-        tf.translation.y = wall.base_y + wall.mesh_origin_offset_y * new_scale_y;
+        apply_entity_transparency(
+            entity,
+            should_cut,
+            &children_query,
+            &mut mesh_materials,
+            materials,
+            &mut cache,
+            &mut commands,
+        );
     }
 
-    // 2. Обновляем срез колонн
-    for (pillar, mut tf) in &mut pillars {
+    // 2. Переключаем прозрачность колонн
+    for (entity, pillar) in &pillars {
         let is_active_floor = state.active_building == Some(pillar.building_id)
             && state.viewed_floor == pillar.floor_index;
 
         let should_cut = if is_active_floor {
             if !pillar.adjacent_normals.is_empty() {
-                // Колонна периметра отрезается, если хотя бы одна из примыкающих к ней стен отрезана
                 pillar
                     .adjacent_normals
                     .iter()
                     .any(|n| n.dot(to_camera_xz) > 0.22)
             } else {
-                // Внутренняя колонна зала отрезается, если она ближе к камере, чем персонаж
                 let rel = pillar.world_xz - player_xz;
                 let along_cam = rel.dot(to_camera_xz);
                 let lateral = (rel - to_camera_xz * along_cam).length();
@@ -495,26 +526,33 @@ pub fn update_wall_cutaway_system(
             false
         };
 
-        let target_scale_y = if should_cut {
-            pillar.cutaway_scale_y
-        } else {
-            1.0
-        };
-        let new_scale_y = tf.scale.y + (target_scale_y - tf.scale.y) * lerp_speed;
-        tf.scale.y = new_scale_y;
-        tf.translation.y = pillar.base_y + pillar.mesh_origin_offset_y * new_scale_y;
+        apply_entity_transparency(
+            entity,
+            should_cut,
+            &children_query,
+            &mut mesh_materials,
+            materials,
+            &mut cache,
+            &mut commands,
+        );
     }
 
-    // 3. Обновляем срез высокой пристенной мебели (шкафы, часы, камины у отрезанных стен)
-    for (prop, mut tf) in &mut attached_props {
+    // 3. Переключаем прозрачность высокой пристенной мебели у прозрачных стен
+    for (entity, prop) in &attached_props {
         let is_active_floor = state.active_building == Some(prop.building_id)
             && state.viewed_floor == prop.floor_index;
 
         let should_cut = is_active_floor && prop.wall_normal.dot(to_camera_xz) > 0.22;
-        let target_scale_y = if should_cut { prop.cutaway_scale_y } else { 1.0 };
-        let new_scale_y = tf.scale.y + (target_scale_y - tf.scale.y) * lerp_speed;
-        tf.scale.y = new_scale_y;
-        tf.translation.y = prop.base_y;
+
+        apply_entity_transparency(
+            entity,
+            should_cut,
+            &children_query,
+            &mut mesh_materials,
+            materials,
+            &mut cache,
+            &mut commands,
+        );
     }
 }
 

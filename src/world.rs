@@ -304,7 +304,7 @@ pub fn setup_world(
     commands.spawn((
         WorldAssetRoot(kit.hand_axe.clone()),
         Transform::from_xyz(-3.8, 0.58, 20.1)
-            .with_rotation(Quat::from_Euler(EulerRot::XYZ, 0.15, 0.65, -0.35)),
+            .with_rotation(Quat::from_euler(EulerRot::XYZ, 0.15, 0.65, -0.35)),
     ));
 
     // Исполинский крылатый силуэт Ктулху («Outdoor_CthulhuHorizon») в тумане на дальнем горизонте
@@ -879,7 +879,7 @@ fn spawn_investigator_castle(
             floor0.spawn((
                 WorldAssetRoot(kit.hand_axe.clone()),
                 Transform::from_xyz(-5.4, floor0_y + 0.98, -1.25)
-                    .with_rotation(Quat::from_Euler(EulerRot::XYZ, std::f32::consts::FRAC_PI_2, 0.4, 0.0)),
+                    .with_rotation(Quat::from_euler(EulerRot::XYZ, std::f32::consts::FRAC_PI_2, 0.4, 0.0)),
             ));
 
             floor0.spawn((
@@ -1430,6 +1430,12 @@ fn spawn_enterable_town_house(
                 Transform::from_xyz(center.x + 1.6, floor0_y, center.y),
             ));
             nav_world.add_box_on_floor(center.x + 1.6, center.y, 1.35, 0.75, 0);
+
+            floor0.spawn((
+                WorldAssetRoot(kit.occult_book.clone()),
+                Transform::from_xyz(center.x + 1.4, floor0_y + 0.96, center.y)
+                    .with_rotation(Quat::from_rotation_y(-0.4)),
+            ));
 
             let back_z = if door_on_south {
                 center.y - 3.1

@@ -8,6 +8,7 @@ use bevy::prelude::*;
 use building::{
     update_active_building_system, update_building_floor_visibility_system,
     update_building_hud_system, update_wall_cutaway_system, ActiveBuildingState, BuildingRegistry,
+    CutawayMaterialCache,
 };
 use camera::camera_controller_system;
 use navigation::NavWorld;
@@ -26,6 +27,7 @@ fn main() {
         .insert_resource(NavWorld::default())
         .insert_resource(BuildingRegistry::default())
         .insert_resource(ActiveBuildingState::default())
+        .insert_resource(CutawayMaterialCache::default())
         .add_systems(Startup, setup_world)
         .add_systems(
             Update,
