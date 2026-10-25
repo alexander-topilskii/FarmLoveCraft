@@ -1,5 +1,6 @@
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
+use bevy::ui::UiGlobalTransform;
 use serde::{Deserialize, Serialize};
 
 use crate::camera::CameraController;
@@ -512,6 +513,30 @@ fn spawn_action_button(
         });
 }
 
+/// Проверка, попадает ли курсор мыши в пределы UI-элемента (учитывает физические и логические координаты)
+pub fn is_node_hovered(
+    c_node: &ComputedNode,
+    ui_tf: &UiGlobalTransform,
+    cursor_phys: Option<Vec2>,
+    cursor_logical: Option<Vec2>,
+    scale: f32,
+) -> bool {
+    if c_node.size().x <= 0.0 || c_node.size().y <= 0.0 {
+        return false;
+    }
+    if let Some(phys) = cursor_phys {
+        if c_node.contains_point(*ui_tf, phys) {
+            return true;
+        }
+    }
+    if let Some(logical) = cursor_logical {
+        if c_node.contains_point(*ui_tf, logical * scale) || c_node.contains_point(*ui_tf, logical) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Система переключения видимости верхней информационной панели по клавише Tab или клику мыши на кнопку
 pub fn toggle_top_hud_system(
     keyboard_input: Res<ButtonInput<KeyCode>>,
@@ -519,7 +544,7 @@ pub fn toggle_top_hud_system(
     windows: Query<&Window>,
     tab_button_query: Query<
         (
-            &GlobalTransform,
+            &UiGlobalTransform,
             &ComputedNode,
             &MenuHoverable,
             &mut BackgroundColor,
@@ -532,21 +557,20 @@ pub fn toggle_top_hud_system(
     let Ok(window) = windows.single() else {
         return;
     };
-    let cursor_pos = window.cursor_position();
+    let cursor_phys = window.physical_cursor_position();
+    let cursor_logical = window.cursor_position();
+    let scale = window.scale_factor();
 
     let mut button_clicked = false;
-    for (gtf, c_node, hoverable, mut bg) in &mut tab_button_query.into_iter() {
-        if c_node.size().x > 1.0 {
-            let rect = Rect::from_center_size(gtf.translation().truncate(), c_node.size());
-            let hovered = cursor_pos.map_or(false, |cp| rect.contains(cp));
-            if hovered {
-                *bg = BackgroundColor(hoverable.hover_color);
-                if mouse_button.just_pressed(MouseButton::Left) {
-                    button_clicked = true;
-                }
-            } else {
-                *bg = BackgroundColor(hoverable.base_color);
+    for (ui_tf, c_node, hoverable, mut bg) in &mut tab_button_query.into_iter() {
+        let hovered = is_node_hovered(c_node, ui_tf, cursor_phys, cursor_logical, scale);
+        if hovered {
+            *bg = BackgroundColor(hoverable.hover_color);
+            if mouse_button.just_pressed(MouseButton::Left) {
+                button_clicked = true;
             }
+        } else {
+            *bg = BackgroundColor(hoverable.base_color);
         }
     }
 
@@ -578,7 +602,7 @@ pub fn toggle_game_menu_system(
     rts_menus: Query<Entity, With<RtsContextMenuRoot>>,
     toggle_btn_query: Query<
         (
-            &GlobalTransform,
+            &UiGlobalTransform,
             &ComputedNode,
             &MenuHoverable,
             &mut BackgroundColor,
@@ -590,21 +614,20 @@ pub fn toggle_game_menu_system(
     let Ok(window) = windows.single() else {
         return;
     };
-    let cursor_pos = window.cursor_position();
+    let cursor_phys = window.physical_cursor_position();
+    let cursor_logical = window.cursor_position();
+    let scale = window.scale_factor();
 
     let mut toggle_clicked = false;
-    for (gtf, c_node, hoverable, mut bg) in &mut toggle_btn_query.into_iter() {
-        if c_node.size().x > 1.0 {
-            let rect = Rect::from_center_size(gtf.translation().truncate(), c_node.size());
-            let hovered = cursor_pos.map_or(false, |cp| rect.contains(cp));
-            if hovered {
-                *bg = BackgroundColor(hoverable.hover_color);
-                if mouse_button.just_pressed(MouseButton::Left) {
-                    toggle_clicked = true;
-                }
-            } else {
-                *bg = BackgroundColor(hoverable.base_color);
+    for (ui_tf, c_node, hoverable, mut bg) in &mut toggle_btn_query.into_iter() {
+        let hovered = is_node_hovered(c_node, ui_tf, cursor_phys, cursor_logical, scale);
+        if hovered {
+            *bg = BackgroundColor(hoverable.hover_color);
+            if mouse_button.just_pressed(MouseButton::Left) {
+                toggle_clicked = true;
             }
+        } else {
+            *bg = BackgroundColor(hoverable.base_color);
         }
     }
 
@@ -635,9 +658,8 @@ pub fn game_menu_interaction_system(
     mut menu_root_query: Query<&mut Visibility, With<GameMenuRoot>>,
     buttons_query: Query<
         (
-            &GlobalTransform,
+            &UiGlobalTransform,
             &ComputedNode,
-            &InheritedVisibility,
             &MenuButtonAction,
             &MenuHoverable,
             &mut BackgroundColor,
@@ -662,7 +684,9 @@ pub fn game_menu_interaction_system(
     let Ok(window) = windows.single() else {
         return;
     };
-    let cursor_pos = window.cursor_position();
+    let cursor_phys = window.physical_cursor_position();
+    let cursor_logical = window.cursor_position();
+    let scale = window.scale_factor();
     let lmb_pressed = mouse_button.just_pressed(MouseButton::Left);
 
     let mut chosen_action: Option<MenuButtonAction> = None;
@@ -682,12 +706,8 @@ pub fn game_menu_interaction_system(
         chosen_action = Some(MenuButtonAction::CameraDistanceStep(3.0));
     }
 
-    for (gtf, c_node, inherited_vis, action, hoverable, mut bg) in &mut buttons_query.into_iter() {
-        if !inherited_vis.get() || c_node.size().x <= 1.0 {
-            continue;
-        }
-        let rect = Rect::from_center_size(gtf.translation().truncate(), c_node.size());
-        let hovered = cursor_pos.map_or(false, |cp| rect.contains(cp));
+    for (ui_tf, c_node, action, hoverable, mut bg) in &mut buttons_query.into_iter() {
+        let hovered = is_node_hovered(c_node, ui_tf, cursor_phys, cursor_logical, scale);
 
         if hovered {
             *bg = BackgroundColor(hoverable.hover_color);
@@ -1157,5 +1177,225 @@ mod tests {
         assert!(status.contains("✓ Успешно сохранено"));
         assert!(std::path::Path::new(SAVE_FILE_NAME).exists());
         let _ = std::fs::remove_file(SAVE_FILE_NAME);
+    }
+
+    #[test]
+    fn test_menu_toggle_and_tab_button_mouse_clicks() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.init_resource::<ButtonInput<MouseButton>>();
+        app.init_resource::<GameMenuState>();
+
+        // Окно с курсором
+        let mut window = Window::default();
+        window.set_cursor_position(Some(Vec2::new(20.0, 20.0)));
+        let win_entity = app.world_mut().spawn(window).id();
+
+        // 1. Тестируем TopHudTabButton
+        let hud_entity = app
+            .world_mut()
+            .spawn((TopHudRoot, Visibility::Hidden))
+            .id();
+        let tab_text_entity = app
+            .world_mut()
+            .spawn((TopHudTabText, Text::new("[Tab] ℹ Инфо")))
+            .id();
+        let tab_btn_entity = app
+            .world_mut()
+            .spawn((
+                TopHudTabButton,
+                ComputedNode {
+                    size: Vec2::new(60.0, 30.0),
+                    ..default()
+                },
+                UiGlobalTransform::from_xy(20.0, 20.0),
+                MenuHoverable {
+                    base_color: Color::BLACK,
+                    hover_color: Color::WHITE,
+                },
+                BackgroundColor(Color::BLACK),
+            ))
+            .id();
+
+        app.add_systems(Update, (toggle_top_hud_system, toggle_game_menu_system));
+
+        // Курсор над кнопкой Tab, нажимаем ЛКМ
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+
+        // Проверяем, что клик сработал: HUD показан, текст изменился, цвет подсветки hover_color
+        assert_eq!(
+            *app.world().get::<Visibility>(hud_entity).unwrap(),
+            Visibility::Inherited
+        );
+        assert_eq!(
+            app.world().get::<Text>(tab_text_entity).unwrap().as_str(),
+            "[Tab] ✕ Скрыть инфо"
+        );
+        assert_eq!(
+            app.world().get::<BackgroundColor>(tab_btn_entity).unwrap().0,
+            Color::WHITE
+        );
+
+        // 2. Тестируем MenuToggleButton
+        let menu_root_entity = app
+            .world_mut()
+            .spawn((GameMenuRoot, Visibility::Hidden))
+            .id();
+        let toggle_btn_entity = app
+            .world_mut()
+            .spawn((
+                MenuToggleButton,
+                ComputedNode {
+                    size: Vec2::new(80.0, 30.0),
+                    ..default()
+                },
+                UiGlobalTransform::from_xy(200.0, 20.0),
+                MenuHoverable {
+                    base_color: Color::srgb(0.1, 0.1, 0.1),
+                    hover_color: Color::srgb(0.9, 0.9, 0.9),
+                },
+                BackgroundColor(Color::srgb(0.1, 0.1, 0.1)),
+            ))
+            .id();
+
+        // Перемещаем курсор на MenuToggleButton (200.0, 20.0) и кликаем ЛКМ
+        app.world_mut()
+            .get_mut::<Window>(win_entity)
+            .unwrap()
+            .set_cursor_position(Some(Vec2::new(200.0, 20.0)));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+
+        // Проверяем, что меню открылось
+        assert!(app.world().resource::<GameMenuState>().is_open);
+        assert_eq!(
+            *app.world().get::<Visibility>(menu_root_entity).unwrap(),
+            Visibility::Inherited
+        );
+        assert_eq!(
+            app.world().get::<BackgroundColor>(toggle_btn_entity).unwrap().0,
+            Color::srgb(0.9, 0.9, 0.9)
+        );
+    }
+
+    #[test]
+    fn test_game_menu_modal_action_button_mouse_clicks() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.init_resource::<ButtonInput<MouseButton>>();
+        app.init_resource::<GameMenuState>();
+        app.init_resource::<PlayerInventory>();
+        app.init_resource::<DetectiveEnergy>();
+        app.init_resource::<DefenseWaveState>();
+        app.init_resource::<Time>();
+
+        let mut window = Window::default();
+        window.set_cursor_position(Some(Vec2::new(100.0, 100.0)));
+        let win_entity = app.world_mut().spawn(window).id();
+
+        let cam_entity = app
+            .world_mut()
+            .spawn((
+                Camera3d::default(),
+                CameraController {
+                    distance: 24.0,
+                    ..default()
+                },
+                Projection::Perspective(PerspectiveProjection {
+                    fov: 45.0_f32.to_radians(),
+                    ..default()
+                }),
+            ))
+            .id();
+
+        app.world_mut().spawn((
+            Transform::default(),
+            Player {
+                speed: 5.0,
+                current_floor: 0,
+                path: default(),
+                keyboard_vel: Vec3::ZERO,
+                is_moving: false,
+            },
+        ));
+
+        let menu_root_entity = app
+            .world_mut()
+            .spawn((GameMenuRoot, Visibility::Inherited))
+            .id();
+
+        // Создаем кнопку изменения дистанции камеры (-3м)
+        app.world_mut().spawn((
+            MenuButtonAction::CameraDistanceStep(-3.0),
+            ComputedNode {
+                size: Vec2::new(100.0, 30.0),
+                ..default()
+            },
+            UiGlobalTransform::from_xy(100.0, 100.0),
+            MenuHoverable {
+                base_color: Color::BLACK,
+                hover_color: Color::WHITE,
+            },
+            BackgroundColor(Color::BLACK),
+        ));
+
+        // Создаем кнопку закрытия меню
+        app.world_mut().spawn((
+            MenuButtonAction::CloseMenu,
+            ComputedNode {
+                size: Vec2::new(100.0, 30.0),
+                ..default()
+            },
+            UiGlobalTransform::from_xy(300.0, 100.0),
+            MenuHoverable {
+                base_color: Color::BLACK,
+                hover_color: Color::WHITE,
+            },
+            BackgroundColor(Color::BLACK),
+        ));
+
+        app.add_systems(Update, game_menu_interaction_system);
+
+        // Открываем меню
+        app.world_mut().resource_mut::<GameMenuState>().is_open = true;
+
+        // Кликаем по первой кнопке (100.0, 100.0): дистанция камеры
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+
+        let ctrl = app.world().get::<CameraController>(cam_entity).unwrap();
+        assert_eq!(ctrl.distance, 21.0);
+
+        // Перемещаем курсор на кнопку CloseMenu (300.0, 100.0) и кликаем
+        app.world_mut()
+            .get_mut::<Window>(win_entity)
+            .unwrap()
+            .set_cursor_position(Some(Vec2::new(300.0, 100.0)));
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .reset_all();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
+        app.update();
+
+        // Меню должно закрыться
+        assert!(!app.world().resource::<GameMenuState>().is_open);
+        assert_eq!(
+            *app.world().get::<Visibility>(menu_root_entity).unwrap(),
+            Visibility::Hidden
+        );
     }
 }
