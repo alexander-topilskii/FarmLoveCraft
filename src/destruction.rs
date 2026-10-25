@@ -12,10 +12,12 @@ pub enum ResourceType {
     Stone,
     /// Земля — добывается при копке рельефа, используется для насыпи и высадки растений
     Soil,
-    /// Страхи — основная мистическая валюта (с алтарей, щупалец и спор)
+    /// Споры / Страхи — основная мистическая валюта (с алтарей, щупалец и споровых узлов)
     Fear,
     /// Зацепки (Улики) — исследовательская валюта (из книжных шкафов, столов и фолиантов)
     Clues,
+    /// Листва / Ветки — органические остатки при рубке крон деревьев и расчистке кустов
+    Foliage,
 }
 
 impl ResourceType {
@@ -24,8 +26,9 @@ impl ResourceType {
             ResourceType::Wood => "Дерево",
             ResourceType::Stone => "Камень/Металл",
             ResourceType::Soil => "Земля",
-            ResourceType::Fear => "Страхи",
+            ResourceType::Fear => "Споры (Страх)",
             ResourceType::Clues => "Зацепки",
+            ResourceType::Foliage => "Листва",
         }
     }
 
@@ -36,8 +39,18 @@ impl ResourceType {
             ResourceType::Soil => Color::srgb(0.45, 0.34, 0.22),
             ResourceType::Fear => Color::srgb(0.25, 0.95, 0.58),
             ResourceType::Clues => Color::srgb(0.95, 0.80, 0.32),
+            ResourceType::Foliage => Color::srgb(0.18, 0.45, 0.22),
         }
     }
+}
+
+/// 3D-модели выпадающих ресурсов, лежащих на земле
+#[derive(Resource, Clone, Default)]
+pub struct ResourceModelAssets {
+    pub stone: Handle<WorldAsset>,
+    pub wood: Handle<WorldAsset>,
+    pub foliage: Handle<WorldAsset>,
+    pub spores: Handle<WorldAsset>,
 }
 
 /// Инвентарь ресурсов Сыщика
@@ -48,6 +61,7 @@ pub struct PlayerInventory {
     pub soil: u32,
     pub fear: u32,
     pub clues: u32,
+    pub foliage: u32,
 }
 
 impl Default for PlayerInventory {
@@ -59,6 +73,7 @@ impl Default for PlayerInventory {
             soil: 6,
             fear: 5,
             clues: 3,
+            foliage: 4,
         }
     }
 }
@@ -71,6 +86,7 @@ impl PlayerInventory {
             ResourceType::Soil => self.soil += amount,
             ResourceType::Fear => self.fear += amount,
             ResourceType::Clues => self.clues += amount,
+            ResourceType::Foliage => self.foliage += amount,
         }
     }
 
@@ -81,6 +97,7 @@ impl PlayerInventory {
             ResourceType::Soil => self.soil,
             ResourceType::Fear => self.fear,
             ResourceType::Clues => self.clues,
+            ResourceType::Foliage => self.foliage,
         }
     }
 
@@ -99,6 +116,7 @@ impl PlayerInventory {
                 ResourceType::Soil => self.soil -= amt,
                 ResourceType::Fear => self.fear -= amt,
                 ResourceType::Clues => self.clues -= amt,
+                ResourceType::Foliage => self.foliage -= amt,
             }
         }
         true
@@ -214,7 +232,11 @@ impl Destructible {
             hp: 60.0,
             max_hp: 60.0,
             material: DestructibleMaterial::Wood,
-            drops: vec![(ResourceType::Wood, 4), (ResourceType::Soil, 1)],
+            drops: vec![
+                (ResourceType::Wood, 4),
+                (ResourceType::Foliage, 2),
+                (ResourceType::Soil, 1),
+            ],
             colliders,
             pick_radius: 1.6,
             pick_height: 7.5,
@@ -223,11 +245,14 @@ impl Destructible {
 
     pub fn bush(colliders: Vec<ColliderId>) -> Self {
         Self {
-            title: "Терновый куст со спорами",
+            title: "Болотный кустарник",
             hp: 30.0,
             max_hp: 30.0,
             material: DestructibleMaterial::Foliage,
-            drops: vec![(ResourceType::Wood, 2), (ResourceType::Fear, 1)],
+            drops: vec![
+                (ResourceType::Foliage, 3),
+                (ResourceType::Fear, 2),
+            ],
             colliders,
             pick_radius: 1.2,
             pick_height: 1.8,
@@ -424,6 +449,7 @@ pub fn apply_damage_to_entity(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    loot_models: Option<&ResourceModelAssets>,
     nav_world: &mut NavWorld,
     integrity_dirty: &mut StructuralIntegrityDirty,
     target_entity: Entity,
@@ -465,11 +491,12 @@ pub fn apply_damage_to_entity(
         12,
     );
 
-    // Спавним выпавшие ресурсы (лут)
+    // Спавним выпавшие ресурсы (3D-модели лута)
     spawn_loot_drops(
         commands,
         meshes,
         materials,
+        loot_models,
         world_pos + Vec3::Y * 0.6,
         &destructible.drops,
     );
@@ -518,36 +545,53 @@ pub fn spawn_loot_drops(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
     materials: &mut Assets<StandardMaterial>,
+    loot_models: Option<&ResourceModelAssets>,
     origin: Vec3,
     drops: &[(ResourceType, u32)],
 ) {
-    let orb_mesh = meshes.add(Cuboid::new(0.32, 0.32, 0.32));
+    let fallback_mesh = meshes.add(Cuboid::new(0.32, 0.32, 0.32));
     let mut idx = 0_usize;
 
     for &(res_type, amount) in drops {
         if amount == 0 {
             continue;
         }
-        let mat = materials.add(StandardMaterial {
-            base_color: res_type.color(),
-            emissive: res_type.color().into(),
-            perceptual_roughness: 0.4,
-            ..default()
-        });
 
         let angle = idx as f32 * 2.1 + 0.5;
         let vel = Vec3::new(angle.cos() * 1.8, 3.8, angle.sin() * 1.8);
-        commands.spawn((
+
+        let mut entity_cmds = commands.spawn((
             DroppedLoot {
                 resource: res_type,
                 amount,
                 velocity: vel,
                 age: 0.0,
             },
-            Mesh3d(orb_mesh.clone()),
-            MeshMaterial3d(mat),
-            Transform::from_translation(origin),
+            Transform::from_translation(origin).with_scale(Vec3::splat(1.15)),
         ));
+
+        if let Some(models) = loot_models {
+            let model_handle = match res_type {
+                ResourceType::Stone | ResourceType::Soil => models.stone.clone(),
+                ResourceType::Wood => models.wood.clone(),
+                ResourceType::Foliage => models.foliage.clone(),
+                ResourceType::Fear => models.spores.clone(),
+                ResourceType::Clues => models.wood.clone(),
+            };
+            entity_cmds.insert(WorldAssetRoot(model_handle));
+        } else {
+            let mat = materials.add(StandardMaterial {
+                base_color: res_type.color(),
+                emissive: res_type.color().into(),
+                perceptual_roughness: 0.4,
+                ..default()
+            });
+            entity_cmds.insert((
+                Mesh3d(fallback_mesh.clone()),
+                MeshMaterial3d(mat),
+            ));
+        }
+
         idx += 1;
     }
 }
@@ -665,6 +709,7 @@ pub fn update_destruction_effects_system(
     time: Res<Time>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    loot_models: Option<Res<ResourceModelAssets>>,
     mut nav_world: ResMut<NavWorld>,
     mut integrity_dirty: ResMut<StructuralIntegrityDirty>,
     mut inventory: ResMut<PlayerInventory>,
@@ -727,6 +772,7 @@ pub fn update_destruction_effects_system(
                     &mut commands,
                     &mut meshes,
                     &mut materials,
+                    loot_models.as_deref(),
                     &mut nav_world,
                     &mut dummy_dirty,
                     entity,

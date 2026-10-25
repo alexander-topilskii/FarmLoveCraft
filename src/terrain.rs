@@ -470,6 +470,7 @@ impl WorldTerrain {
 #[derive(Resource, Clone)]
 #[allow(dead_code)]
 pub struct ProceduralBiomeAssets {
+    pub trees: Vec<Handle<WorldAsset>>,
     pub tree: Handle<WorldAsset>,
     pub bush: Handle<WorldAsset>,
     pub gravestone: Handle<WorldAsset>,
@@ -607,10 +608,12 @@ fn populate_wild_chunk(
         match biome {
             Biome::Darkwoods | Biome::InnsmouthSwamp => {
                 if r3 < 0.42 {
+                    let tree_idx = ((r2 * 100.0) as usize) % (if assets.trees.is_empty() { 1 } else { assets.trees.len() });
+                    let selected_tree = assets.trees.get(tree_idx).unwrap_or(&assets.tree).clone();
                     let scale = 0.85 + r1 * 0.35;
                     let col_id = nav_world.add_box(wx, wz, 0.75 * scale, 0.75 * scale);
                     commands.spawn((
-                        WorldAssetRoot(assets.tree.clone()),
+                        WorldAssetRoot(selected_tree),
                         Transform::from_xyz(wx, wy, wz)
                             .with_rotation(Quat::from_rotation_y(yaw))
                             .with_scale(Vec3::splat(scale)),

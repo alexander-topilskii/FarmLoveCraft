@@ -7,7 +7,8 @@ use crate::building::{
 };
 use crate::camera::CameraController;
 use crate::destruction::{
-    Destructible, ResourceType, StructuralIntegrityDirty, StructuralKind, StructuralPiece,
+    Destructible, ResourceModelAssets, ResourceType, StructuralIntegrityDirty, StructuralKind,
+    StructuralPiece,
 };
 use crate::navigation::{NavWorld, StairLink};
 use crate::player::{on_character_scene_ready, CharacterAnimations, Player};
@@ -125,6 +126,22 @@ pub fn setup_world(
     let bench_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_bench.glb"));
     let lamppost_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_lamppost.glb"));
     let tree_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_tree.glb"));
+    let tree_gnarled_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_tree_gnarled.glb"));
+    let tree_snag_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_tree_snag.glb"));
+    let tree_log_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_tree_log.glb"));
+    let tree_willow_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_tree_willow.glb"));
+    let tree_pine_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_tree_pine.glb"));
+    let tree_corrupted_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_tree_corrupted.glb"));
+
+    let all_trees = vec![
+        tree_scene.clone(),
+        tree_gnarled_scene.clone(),
+        tree_snag_scene.clone(),
+        tree_log_scene.clone(),
+        tree_willow_scene.clone(),
+        tree_pine_scene.clone(),
+        tree_corrupted_scene.clone(),
+    ];
     let bush_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_bush.glb"));
     let fence_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_fence.glb"));
     let gravestone_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_gravestone.glb"));
@@ -151,7 +168,20 @@ pub fn setup_world(
     let dock_cargo_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_dock_cargo.glb"));
     let cthulhu_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/outdoor/outdoor_cthulhu.glb"));
 
+    let res_stone_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/resources/resource_stone.glb"));
+    let res_wood_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/resources/resource_wood.glb"));
+    let res_foliage_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/resources/resource_foliage.glb"));
+    let res_spores_scene = asset_server.load(GltfAssetLabel::Scene(0).from_asset("models/resources/resource_spores.glb"));
+
+    commands.insert_resource(ResourceModelAssets {
+        stone: res_stone_scene,
+        wood: res_wood_scene,
+        foliage: res_foliage_scene,
+        spores: res_spores_scene,
+    });
+
     commands.insert_resource(ProceduralBiomeAssets {
+        trees: all_trees,
         tree: tree_scene.clone(),
         bush: bush_scene.clone(),
         gravestone: gravestone_scene.clone(),
@@ -654,24 +684,24 @@ pub fn setup_world(
         ));
     }
 
-    // Болотные деревья
-    let tree_positions = [
-        (-16.5, 4.5, 0.0, 1.0),
-        (-25.5, 19.0, 1.2, 1.1),
-        (24.5, 18.5, 1.9, 1.0),
-        (28.5, 3.5, 3.1, 1.15),
-        (26.0, -8.5, 0.5, 0.95),
-        (-16.5, -14.5, 2.1, 1.05),
-        (15.5, -14.0, 1.4, 1.0),
-        (-34.5, 35.0, 0.8, 1.1),
-        (34.5, 35.0, 2.4, 1.1),
-        (-23.5, 55.0, 1.5, 1.05),
-        (23.5, 55.0, 0.4, 1.05),
+    // Болотные деревья и коряги (различные варианты по референсам стиля)
+    let tree_placements: [(Handle<WorldAsset>, f32, f32, f32, f32); 11] = [
+        (tree_gnarled_scene.clone(), -16.5, 4.5, 0.0, 1.0),
+        (tree_willow_scene.clone(), -25.5, 19.0, 1.2, 1.05),
+        (tree_pine_scene.clone(), 24.5, 18.5, 1.9, 1.0),
+        (tree_snag_scene.clone(), 28.5, 3.5, 3.1, 1.0),
+        (tree_log_scene.clone(), 26.0, -8.5, 0.5, 1.0),
+        (tree_scene.clone(), -16.5, -14.5, 2.1, 1.05),
+        (tree_corrupted_scene.clone(), 15.5, -14.0, 1.4, 1.0),
+        (tree_gnarled_scene.clone(), -34.5, 35.0, 0.8, 1.1),
+        (tree_pine_scene.clone(), 34.5, 35.0, 2.4, 1.05),
+        (tree_willow_scene.clone(), -23.5, 55.0, 1.5, 1.05),
+        (tree_snag_scene.clone(), 23.5, 55.0, 0.4, 1.05),
     ];
-    for (tx, tz, tyaw, tscale) in tree_positions {
+    for (handle, tx, tz, tyaw, tscale) in tree_placements {
         let col = nav_world.add_box(tx, tz, 0.75 * tscale, 0.75 * tscale);
         commands.spawn((
-            WorldAssetRoot(tree_scene.clone()),
+            WorldAssetRoot(handle),
             Transform::from_xyz(tx, 0.0, tz)
                 .with_rotation(Quat::from_rotation_y(tyaw))
                 .with_scale(Vec3::splat(tscale)),

@@ -4,8 +4,8 @@ use crate::building::{
 };
 use crate::camera::CameraController;
 use crate::destruction::{
-    apply_damage_to_entity, spawn_debris_burst, Destructible, PlayerInventory, ResourceType,
-    StructuralIntegrityDirty, StructuralKind, StructuralPiece, TentacleCrop,
+    apply_damage_to_entity, spawn_debris_burst, Destructible, PlayerInventory, ResourceModelAssets,
+    ResourceType, StructuralIntegrityDirty, StructuralKind, StructuralPiece, TentacleCrop,
 };
 use crate::navigation::NavWorld;
 use crate::player::Player;
@@ -738,6 +738,7 @@ pub fn execute_rts_order_system(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     kit_assets: Option<Res<BuildableKitAssets>>,
+    loot_models: Option<Res<ResourceModelAssets>>,
     building_state: Res<ActiveBuildingState>,
     mut player_query: Query<(&mut Player, &mut Transform)>,
     mut destructibles_query: Query<(&GlobalTransform, &mut Destructible)>,
@@ -801,6 +802,7 @@ pub fn execute_rts_order_system(
                         &mut commands,
                         &mut meshes,
                         &mut materials,
+                        loot_models.as_deref(),
                         &mut nav_world,
                         &mut integrity_dirty,
                         *target,
@@ -1121,13 +1123,14 @@ pub fn update_inventory_hud_system(
     };
 
     **text = format!(
-        "Биом: {} ({} чанков) | Дерево: {} | Камень: {} | Земля: {} | Страхи: {} | Зацепки: {}\n{}",
+        "Биом: {} ({} чанков) | Дерево: {} | Камень: {} | Листва: {} | Споры: {} | Земля: {} | Зацепки: {}\n{}",
         biome_name,
         terrain.spawned_chunks.len(),
         inventory.wood,
         inventory.stone,
-        inventory.soil,
+        inventory.foliage,
         inventory.fear,
+        inventory.soil,
         inventory.clues,
         status
     );
