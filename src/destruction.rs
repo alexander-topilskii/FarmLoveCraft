@@ -314,6 +314,7 @@ impl Destructible {
 
 /// Категория строительного элемента для расчета структурной опоры (Valheim Structural Integrity)
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[allow(dead_code)]
 pub enum StructuralKind {
     Floor,
     Wall,
