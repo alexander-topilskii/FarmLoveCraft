@@ -39,6 +39,9 @@ jobs:
       - name: Get wasm-bindgen version
         id: wasm-bindgen-version
         run: |
+          if [ ! -f Cargo.lock ]; then
+            cargo generate-lockfile
+          fi
           VERSION=$(awk -F '"' '/^name = "wasm-bindgen"$/ { getline; print $2; exit }' Cargo.lock)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 

@@ -1,6 +1,6 @@
 /target
 dist
-Cargo.lock
+.DS_Store
 
 # Unity .gitignore Template
 # Source: https://github.com/github/gitignore/blob/main/Unity.gitignore
