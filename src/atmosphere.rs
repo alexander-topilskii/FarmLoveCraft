@@ -8,7 +8,7 @@ use bevy::post_process::dof::{DepthOfField, DepthOfFieldMode};
 use bevy::prelude::*;
 use bevy::reflect::TypePath;
 use bevy::render::render_resource::{AsBindGroup, ShaderType};
-use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection};
+use bevy::render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection, Msaa};
 use bevy::shader::ShaderRef;
 
 use crate::camera::CameraController;
@@ -654,9 +654,9 @@ fn update_celestial_lights_system(
 /// Синхронизация DistanceFog на камере и FogVolume вокруг фокуса
 fn update_distance_and_volumetric_fog_system(
     state: Res<AtmosphereState>,
-    player_query: Query<&Transform, (With<Player>, Without<Camera3d>)>,
+    player_query: Query<&Transform, (With<Player>, Without<AtmosphericFogVolume>)>,
     mut cam_query: Query<&mut DistanceFog, With<Camera3d>>,
-    mut fog_volume_query: Query<(&mut Transform, &mut FogVolume), With<AtmosphericFogVolume>>,
+    mut fog_volume_query: Query<(&mut Transform, &mut FogVolume), (With<AtmosphericFogVolume>, Without<Player>)>,
 ) {
     for mut dist_fog in &mut cam_query {
         dist_fog.color = state.fog_color;
@@ -893,6 +893,7 @@ pub fn setup_cinematic_camera_bundle(
                 ..default()
             },
         },
+        Msaa::Off,
         ScreenSpaceAmbientOcclusion::default(),
         bevy::anti_alias::fxaa::Fxaa::default(),
         DistanceFog {

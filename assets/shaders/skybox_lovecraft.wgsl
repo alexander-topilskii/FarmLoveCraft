@@ -10,7 +10,7 @@ struct SkyUniforms {
     params: vec4<f32>, // x: time, y: stars_intensity, z: cloud_coverage, w: storm_intensity
 };
 
-@group(2) @binding(0) var<uniform> sky: SkyUniforms;
+@group(3) @binding(0) var<uniform> sky: SkyUniforms;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
